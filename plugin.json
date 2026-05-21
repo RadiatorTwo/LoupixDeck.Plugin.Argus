@@ -1,0 +1,8 @@
+{
+  "id": "argus",
+  "name": "Argus Monitor",
+  "version": "1.0.0",
+  "sdkVersion": "1.1",
+  "entryAssembly": "LoupixDeck.Plugin.Argus.dll",
+  "platform": "Windows"
+}
