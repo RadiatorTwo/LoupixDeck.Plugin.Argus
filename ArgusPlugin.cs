@@ -16,7 +16,7 @@ public sealed class ArgusPlugin : LoupixPlugin, IMenuContributor, IPluginSetting
         Id = "argus",
         Name = "Argus Monitor",
         Version = new Version(1, 0, 0),
-        SdkVersion = new Version(1, 1, 0),
+        SdkVersion = new Version(1, 14, 0),
         Author = "RadiatorTwo",
         Description = "Display Argus Monitor sensor readings on touch buttons via its shared-memory data API."
     };
