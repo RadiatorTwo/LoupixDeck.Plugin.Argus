@@ -1,4 +1,5 @@
 using System.Globalization;
+using LoupixDeck.PluginSdk;
 
 namespace LoupixDeck.Plugin.Argus.Tiles;
 
@@ -65,7 +66,9 @@ public static class ArgusTileSpecBuilder
             Variant = TileVariant.SingleValue,
             Header = Header(sensor!),
             PrimaryValue = value,
-            PrimaryUnit = unit
+            PrimaryUnit = unit,
+            PrimaryFraction = Fraction(sensor!, sensors),
+            Accent = Accent(sensor!.Type)
         };
     }
 
@@ -90,7 +93,10 @@ public static class ArgusTileSpecBuilder
             SecondaryValue = bv,
             SecondaryUnit = bu,
             PrimaryCaption = a is not null ? Caption(a.Type) : null,
-            SecondaryCaption = b is not null ? Caption(b.Type) : null
+            SecondaryCaption = b is not null ? Caption(b.Type) : null,
+            PrimaryFraction = a is not null ? Fraction(a, sensors) : null,
+            SecondaryFraction = b is not null ? Fraction(b, sensors) : null,
+            Accent = Accent((a ?? b!).Type)
         };
     }
 
@@ -113,7 +119,10 @@ public static class ArgusTileSpecBuilder
             PrimaryValue = value,
             PrimaryUnit = unit,
             SecondaryValue = pct is not null ? secValue : null,
-            SecondaryUnit = pct is not null ? secUnit : null
+            SecondaryUnit = pct is not null ? secUnit : null,
+            // The bar tracks the fill percentage (memory has a natural 0..100 via the percent sensor).
+            PrimaryFraction = pct is not null ? Math.Clamp(pct.Value / 100.0, 0.0, 1.0) : null,
+            Accent = Accent(abs.Type)
         };
     }
 
@@ -152,14 +161,15 @@ public static class ArgusTileSpecBuilder
         {
             (string value, string unit) = Format(sensor);
             string rowLabel = isTemp ? $"T{sensor.SensorIndex + 1}" : $"#{sensor.SensorIndex}";
-            rows.Add(new TileRow(rowLabel, value, unit));
+            rows.Add(new TileRow(rowLabel, value, unit, Fraction(sensor, sensors)));
         }
 
         return new TileSpec
         {
             Variant = TileVariant.MultiSensor,
             Header = Header(type),
-            Rows = rows
+            Rows = rows,
+            Accent = Accent(type)
         };
     }
 
@@ -190,6 +200,111 @@ public static class ArgusTileSpecBuilder
             text = text[..^2];
         return text;
     }
+
+    // ── Gauge fill ──────────────────────────────────────────────────────────────
+
+    // Nominal full-scale values for readings that have no natural 0..100 range. Centralised here
+    // so the bar scaling can be tuned in one place. Percentages ignore these (they are already 0..100).
+    private const double TempMaxC = 100.0;
+    private const double PowerMaxW = 100.0;
+    private const double FanRpmMax = 3000.0;
+    private const double FreqMaxDefaultMhz = 6000.0;
+    private const double MultiplierMaxDefault = 60.0;
+
+    /// <summary>Returns the 0..1 gauge fill for a sensor, or null when the reading has no meaningful
+    /// scale (so no bar is drawn). Percent readings use their value directly; others divide by a
+    /// nominal per-type maximum.</summary>
+    private static double? Fraction(ArgusSensor sensor, IReadOnlyList<ArgusSensor> sensors)
+    {
+        double? max = MaxFor(sensor, sensors);
+        if (max is null or <= 0)
+            return null;
+
+        return Math.Clamp(sensor.Value / max.Value, 0.0, 1.0);
+    }
+
+    private static double? MaxFor(ArgusSensor sensor, IReadOnlyList<ArgusSensor> sensors)
+    {
+        // Anything already expressed in percent is 0..100.
+        if ((sensor.Unit ?? string.Empty).Equals("%", StringComparison.OrdinalIgnoreCase))
+            return 100.0;
+
+        switch (sensor.Type)
+        {
+            case ArgusSensorType.Temperature:
+            case ArgusSensorType.SyntheticTemperature:
+            case ArgusSensorType.CpuTemperature:
+            case ArgusSensorType.CpuTemperatureAdditional:
+            case ArgusSensorType.GpuTemperature:
+            case ArgusSensorType.DiskTemperature:
+                return TempMaxC;
+
+            case ArgusSensorType.CpuLoad:
+            case ArgusSensorType.GpuLoad:
+            case ArgusSensorType.GpuFanSpeedPercent:
+            case ArgusSensorType.FanControlValue:
+            case ArgusSensorType.GpuMemoryUsedPercent:
+            case ArgusSensorType.Battery:
+                return 100.0;
+
+            case ArgusSensorType.CpuPower:
+            case ArgusSensorType.GpuPower:
+                return PowerMaxW;
+
+            case ArgusSensorType.FanSpeedRpm:
+            case ArgusSensorType.GpuFanSpeedRpm:
+                return FanRpmMax;
+
+            case ArgusSensorType.CpuFrequency:
+            case ArgusSensorType.CpuFrequencyAvg:
+            case ArgusSensorType.CpuFrequencyMin:
+            case ArgusSensorType.CpuFrequencyMax:
+            case ArgusSensorType.CpuFrequencyFsb:
+                double freqMax = sensors.FirstOrDefault(s => s.Type == ArgusSensorType.CpuFrequencyMax)?.Value ?? 0;
+                return freqMax > 0 ? freqMax : FreqMaxDefaultMhz;
+
+            case ArgusSensorType.CpuMultiplier:
+            case ArgusSensorType.CpuMultiplierMax:
+            case ArgusSensorType.CpuMultiplierMin:
+            case ArgusSensorType.CpuMultiplierAvg:
+                double multMax = sensors.FirstOrDefault(s => s.Type == ArgusSensorType.CpuMultiplierMax)?.Value ?? 0;
+                return multMax > 0 ? multMax : MultiplierMaxDefault;
+
+            default:
+                // Clocks (non-CPU), transfer rates, network speed, GPU name, absolute memory (MB/G):
+                // no natural scale → no bar.
+                return null;
+        }
+    }
+
+    // ── Accent (bar tint per subsystem) ───────────────────────────────────────────
+
+    private static readonly PluginColor AccentCpu = new(0x53, 0x6D, 0x9E);      // muted steel blue
+    private static readonly PluginColor AccentGpu = new(0x57, 0x9E, 0x63);      // muted green
+    private static readonly PluginColor AccentMemory = new(0xA8, 0x5C, 0x5C);   // muted red
+    private static readonly PluginColor AccentStorage = new(0xB0, 0x92, 0x42);  // muted amber
+    private static readonly PluginColor AccentTemp = new(0xC0, 0x76, 0x40);     // muted orange
+
+    /// <summary>Muted accent tint for a subsystem, used only for the gauge fill. Null → the theme's
+    /// neutral default bar color.</summary>
+    private static PluginColor? Accent(ArgusSensorType type) => type switch
+    {
+        ArgusSensorType.CpuLoad or ArgusSensorType.CpuPower or ArgusSensorType.CpuTemperature
+            or ArgusSensorType.CpuTemperatureAdditional or ArgusSensorType.CpuMultiplier
+            or ArgusSensorType.CpuMultiplierMax or ArgusSensorType.CpuMultiplierMin or ArgusSensorType.CpuMultiplierAvg
+            or ArgusSensorType.CpuFrequency or ArgusSensorType.CpuFrequencyMax or ArgusSensorType.CpuFrequencyMin
+            or ArgusSensorType.CpuFrequencyAvg or ArgusSensorType.CpuFrequencyFsb => AccentCpu,
+
+        ArgusSensorType.GpuLoad or ArgusSensorType.GpuPower or ArgusSensorType.GpuTemperature
+            or ArgusSensorType.GpuCoreClk or ArgusSensorType.GpuMemoryClk or ArgusSensorType.GpuShaderClk
+            or ArgusSensorType.GpuMemoryUsedMb or ArgusSensorType.GpuMemoryUsedPercent
+            or ArgusSensorType.GpuFanSpeedPercent or ArgusSensorType.GpuFanSpeedRpm => AccentGpu,
+
+        ArgusSensorType.RamUsage => AccentMemory,
+        ArgusSensorType.DiskTemperature or ArgusSensorType.DiskTransferRate => AccentStorage,
+        ArgusSensorType.Temperature or ArgusSensorType.SyntheticTemperature => AccentTemp,
+        _ => null
+    };
 
     // ── Sensor lookup ───────────────────────────────────────────────────────────
 

@@ -21,11 +21,22 @@ public readonly record struct TileTheme
     /// <summary>Panel border color.</summary>
     public PluginColor Border { get; init; }
 
-    /// <summary>Subtle horizontal guide line color (SingleValue only, when <see cref="ShowGuideLine"/>).</summary>
+    /// <summary>Subtle divider/guide line color (e.g. between the two rows of a double tile).</summary>
     public PluginColor GuideLine { get; init; }
+
+    /// <summary>Gauge track (unfilled part of the bar).</summary>
+    public PluginColor BarTrack { get; init; }
+
+    /// <summary>Default gauge fill; overridden per tile by <see cref="TileSpec.Accent"/>.</summary>
+    public PluginColor BarFill { get; init; }
+
+    /// <summary>Bar thickness and corner radius (device pixels).</summary>
+    public int BarHeight { get; init; }
+    public int BarRadius { get; init; }
 
     public bool ShowPanel { get; init; }
     public bool ShowGuideLine { get; init; }
+    public bool ShowBar { get; init; }
 
     /// <summary>Outer margin from the canvas edge to the panel (device bezel clearance).</summary>
     public int Inset { get; init; }
@@ -67,8 +78,13 @@ public readonly record struct TileTheme
         Panel = new PluginColor(0x1A, 0x1A, 0x1A),
         Border = new PluginColor(0x30, 0x30, 0x30),
         GuideLine = new PluginColor(0x2A, 0x2A, 0x2A),
+        BarTrack = new PluginColor(0x2C, 0x2C, 0x2C),
+        BarFill = new PluginColor(0x6E, 0x6E, 0x6E),
+        BarHeight = 6,
+        BarRadius = 3,
         ShowPanel = true,
-        ShowGuideLine = true,
+        ShowGuideLine = false,
+        ShowBar = true,
         Inset = 2,
         Padding = 5,
         CornerRadius = 8,

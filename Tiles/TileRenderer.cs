@@ -82,16 +82,15 @@ public static class TileRenderer
     private static void RenderSingle(IRenderCanvas canvas, TileSpec spec, TileTheme theme,
         int x, int y, int w, int h)
     {
-        // Subtle background guide line behind the value.
-        if (theme.ShowGuideLine)
-        {
-            int lineY = y + h / 2;
-            int lineInset = w / 6;
-            canvas.DrawLine(x + lineInset, lineY, x + w - lineInset, lineY, 1, theme.GuideLine);
-        }
+        bool hasBar = theme.ShowBar && spec.PrimaryFraction.HasValue;
+        const int gap = 3;
+        int valueH = hasBar ? h - theme.BarHeight - gap : h;
 
-        DrawValueUnit(canvas, x, y, w, h, spec.PrimaryValue, spec.PrimaryUnit,
+        DrawValueUnit(canvas, x, y, w, valueH, spec.PrimaryValue, spec.PrimaryUnit,
             theme.ValueFontSize, theme.UnitFontSize, theme.ValueColor, theme.UnitColor);
+
+        if (hasBar)
+            DrawBar(canvas, x, y + valueH + gap, w, theme.BarHeight, spec.PrimaryFraction!.Value, theme, Accent(spec, theme));
     }
 
     private static void RenderDouble(IRenderCanvas canvas, TileSpec spec, TileTheme theme,
@@ -100,43 +99,57 @@ public static class TileRenderer
         // Two stacked rows (caption left, value + unit centered in the rest). Stacking rather than
         // side-by-side keeps wide units (e.g. "MHz") readable on a narrow 90px tile.
         int rowH = h / 2;
-        DrawDoubleRow(canvas, x, y, w, rowH, spec.PrimaryCaption, spec.PrimaryValue, spec.PrimaryUnit, theme);
+        PluginColor accent = Accent(spec, theme);
+        DrawDoubleRow(canvas, x, y, w, rowH, spec.PrimaryCaption, spec.PrimaryValue, spec.PrimaryUnit,
+            spec.PrimaryFraction, theme, accent);
         DrawDoubleRow(canvas, x, y + rowH, w, h - rowH, spec.SecondaryCaption,
-            spec.SecondaryValue ?? string.Empty, spec.SecondaryUnit ?? string.Empty, theme);
-
-        // Thin divider between the two rows.
-        if (theme.ShowGuideLine)
-            canvas.DrawLine(x + w / 6, y + rowH, x + w - w / 6, y + rowH, 1, theme.GuideLine);
+            spec.SecondaryValue ?? string.Empty, spec.SecondaryUnit ?? string.Empty,
+            spec.SecondaryFraction, theme, accent);
     }
 
     private static void DrawDoubleRow(IRenderCanvas canvas, int x, int y, int w, int h,
-        string? caption, string value, string unit, TileTheme theme)
+        string? caption, string value, string unit, double? fraction, TileTheme theme, PluginColor accent)
     {
+        bool hasBar = theme.ShowBar && fraction.HasValue;
+        int barH = Math.Max(3, theme.BarHeight - 2);
+        const int gap = 2;
+        int contentH = hasBar ? h - barH - gap : h;
+
         int capW = 0;
         if (!string.IsNullOrWhiteSpace(caption))
         {
             capW = Math.Min((int)canvas.MeasureText(caption!, theme.CaptionFontSize) + 4, (int)(w * 0.4f));
-            canvas.DrawText(caption!, x, y, capW, h, theme.CaptionColor, theme.CaptionFontSize,
+            canvas.DrawText(caption!, x, y, capW, contentH, theme.CaptionColor, theme.CaptionFontSize,
                 TextHAlign.Left, TextVAlign.Middle);
         }
 
-        float valueFont = Math.Min(theme.SecondaryFontSize * 1.25f, h - 2);
-        DrawValueUnit(canvas, x + capW, y, w - capW, h, value, unit,
+        float valueFont = Math.Min(theme.SecondaryFontSize * 1.25f, contentH - 2);
+        DrawValueUnit(canvas, x + capW, y, w - capW, contentH, value, unit,
             valueFont, theme.UnitFontSize * 0.8f, theme.ValueColor, theme.UnitColor);
+
+        if (hasBar)
+            DrawBar(canvas, x, y + contentH + gap, w, barH, fraction!.Value, theme, accent);
     }
 
     private static void RenderMemory(IRenderCanvas canvas, TileSpec spec, TileTheme theme,
         int x, int y, int w, int h)
     {
-        int topH = (int)(h * 0.58f);
+        bool hasBar = theme.ShowBar && spec.PrimaryFraction.HasValue;
+        const int gap = 3;
+        int contentH = hasBar ? h - theme.BarHeight - gap : h;
+        int topH = (int)(contentH * 0.56f);
+
         DrawValueUnit(canvas, x, y, w, topH, spec.PrimaryValue, spec.PrimaryUnit,
             theme.ValueFontSize, theme.UnitFontSize, theme.ValueColor, theme.UnitColor);
 
         if (!string.IsNullOrWhiteSpace(spec.SecondaryValue))
         {
-            DrawValueUnit(canvas, x, y + topH, w, h - topH, spec.SecondaryValue!, spec.SecondaryUnit ?? string.Empty,
+            DrawValueUnit(canvas, x, y + topH, w, contentH - topH, spec.SecondaryValue!, spec.SecondaryUnit ?? string.Empty,
                 theme.SecondaryFontSize, theme.UnitFontSize * 0.85f, theme.SecondaryColor, theme.UnitColor);
         }
+
+        if (hasBar)
+            DrawBar(canvas, x, y + contentH + gap, w, theme.BarHeight, spec.PrimaryFraction!.Value, theme, Accent(spec, theme));
     }
 
     private static void RenderMulti(IRenderCanvas canvas, TileSpec spec, TileTheme theme,
@@ -148,9 +161,14 @@ public static class TileRenderer
             return;
 
         int rowH = h / n;
-        float rowFont = Math.Min(theme.RowFontSize, rowH - 2);
+        // A thin gauge under each row when a fraction is available and the row is tall enough.
+        bool showRowBar = theme.ShowBar && rows.Take(n).Any(r => r.Fraction.HasValue) && rowH >= 14;
+        int barH = showRowBar ? 3 : 0;
+        int textH = rowH - barH;
+        float rowFont = Math.Min(theme.RowFontSize, textH - 2);
         if (rowFont < 8f)
             rowFont = 8f;
+        PluginColor accent = Accent(spec, theme);
 
         // Left label column width: widest label, capped, so values still have room.
         float labelW = 0f;
@@ -164,15 +182,33 @@ public static class TileRenderer
             int rowY = y + i * rowH;
 
             canvas.DrawText(Fit(canvas, row.Label, rowFont, labelColW, false),
-                x, rowY, labelColW, rowH, theme.CaptionColor, rowFont, TextHAlign.Left, TextVAlign.Middle);
+                x, rowY, labelColW, textH, theme.CaptionColor, rowFont, TextHAlign.Left, TextVAlign.Middle);
 
             string valueText = string.IsNullOrEmpty(row.Unit) ? row.Value : $"{row.Value} {row.Unit}";
             int valueX = x + labelColW;
             int valueW = w - labelColW;
             canvas.DrawText(Fit(canvas, valueText, rowFont, valueW, false),
-                valueX, rowY, valueW, rowH, theme.RowColor, rowFont, TextHAlign.Right, TextVAlign.Middle);
+                valueX, rowY, valueW, textH, theme.RowColor, rowFont, TextHAlign.Right, TextVAlign.Middle);
+
+            if (showRowBar && row.Fraction.HasValue)
+                DrawBar(canvas, x, rowY + textH, w, barH, row.Fraction.Value, theme, accent);
         }
     }
+
+    /// <summary>Draws a horizontal gauge: a full-width track with an accent fill proportional to
+    /// <paramref name="fraction"/> (clamped 0..1).</summary>
+    private static void DrawBar(IRenderCanvas canvas, int x, int y, int w, int h, double fraction,
+        TileTheme theme, PluginColor fill)
+    {
+        int radius = Math.Min(theme.BarRadius, h / 2);
+        canvas.FillRoundedRectangle(x, y, w, h, radius, theme.BarTrack);
+
+        int fillW = (int)Math.Round(w * Math.Clamp(fraction, 0.0, 1.0));
+        if (fillW > 0)
+            canvas.FillRoundedRectangle(x, y, fillW, h, Math.Min(radius, fillW / 2), fill);
+    }
+
+    private static PluginColor Accent(TileSpec spec, TileTheme theme) => spec.Accent ?? theme.BarFill;
 
     /// <summary>
     /// Draws a large value with a smaller unit beside it, the pair centered horizontally within

@@ -1,10 +1,12 @@
+using LoupixDeck.PluginSdk;
+
 namespace LoupixDeck.Plugin.Argus.Tiles;
 
 /// <summary>
 /// One aligned row of a <see cref="TileVariant.MultiSensor"/> tile: a short label (e.g. "T1"),
-/// the formatted value and its unit.
+/// the formatted value, its unit and an optional 0..1 bar fill for the row's gauge.
 /// </summary>
-public sealed record TileRow(string Label, string Value, string Unit);
+public sealed record TileRow(string Label, string Value, string Unit, double? Fraction = null);
 
 /// <summary>
 /// Data for a single monitoring tile, decoupled from Argus so <see cref="TileRenderer"/> stays a
@@ -39,6 +41,16 @@ public sealed class TileSpec
 
     /// <summary>Rows for <see cref="TileVariant.MultiSensor"/>. Null/empty otherwise.</summary>
     public IReadOnlyList<TileRow>? Rows { get; init; }
+
+    /// <summary>Gauge fill (0..1) for the primary value. Null → no bar is drawn for it.</summary>
+    public double? PrimaryFraction { get; init; }
+
+    /// <summary>Gauge fill (0..1) for the secondary value. Null → no bar.</summary>
+    public double? SecondaryFraction { get; init; }
+
+    /// <summary>Accent color for the bar fill. Null → the theme's default bar fill is used.
+    /// The tile surface itself stays neutral; only the gauge is tinted.</summary>
+    public PluginColor? Accent { get; init; }
 
     /// <summary>Optional descriptive label drawn as a band at the bottom of the tile. Ellipsized
     /// when too wide.</summary>
