@@ -71,6 +71,11 @@ public readonly record struct TileTheme
     public PluginColor LabelColor { get; init; }
     public float LabelFontSize { get; init; }
 
+    /// <summary>When true, all text is stroked with <see cref="OutlineColor"/> so it stays legible
+    /// over an arbitrary page wallpaper (used by the transparent theme).</summary>
+    public bool OutlineText { get; init; }
+    public PluginColor OutlineColor { get; init; }
+
     /// <summary>Neutral dark default theme.</summary>
     public static TileTheme Default { get; } = new()
     {
@@ -109,6 +114,19 @@ public readonly record struct TileTheme
         RowFontSize = 13f,
 
         LabelColor = new PluginColor(0xC8, 0xC8, 0xC8),
-        LabelFontSize = 12f
+        LabelFontSize = 12f,
+
+        OutlineText = false,
+        OutlineColor = PluginColor.Black
+    };
+
+    /// <summary>Transparent variant: no opaque background or panel, so the page wallpaper shows
+    /// through. Text is outlined for legibility; the gauge keeps its own track for contrast.</summary>
+    public static TileTheme Transparent { get; } = Default with
+    {
+        Background = PluginColor.Transparent,
+        ShowPanel = false,
+        OutlineText = true,
+        OutlineColor = PluginColor.Black
     };
 }

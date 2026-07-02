@@ -40,7 +40,7 @@ public static class TileRenderer
         {
             string header = Fit(canvas, spec.Header, theme.HeaderFontSize, cw, bold: false);
             canvas.DrawText(header, cx, cy, cw, headerH, theme.HeaderColor, theme.HeaderFontSize,
-                TextHAlign.Center, TextVAlign.Middle);
+                TextHAlign.Center, TextVAlign.Middle, outlined: theme.OutlineText, outlineColor: theme.OutlineColor);
         }
 
         // Optional label band (bottom).
@@ -50,7 +50,7 @@ public static class TileRenderer
         {
             string label = Fit(canvas, spec.Label!, theme.LabelFontSize, cw, bold: false);
             canvas.DrawText(label, cx, cy + ch - labelH, cw, labelH, theme.LabelColor, theme.LabelFontSize,
-                TextHAlign.Center, TextVAlign.Middle);
+                TextHAlign.Center, TextVAlign.Middle, outlined: theme.OutlineText, outlineColor: theme.OutlineColor);
         }
 
         // Body (between header and label).
@@ -87,7 +87,7 @@ public static class TileRenderer
         int valueH = hasBar ? h - theme.BarHeight - gap : h;
 
         DrawValueUnit(canvas, x, y, w, valueH, spec.PrimaryValue, spec.PrimaryUnit,
-            theme.ValueFontSize, theme.UnitFontSize, theme.ValueColor, theme.UnitColor);
+            theme.ValueFontSize, theme.UnitFontSize, theme.ValueColor, theme.UnitColor, theme.OutlineText, theme.OutlineColor);
 
         if (hasBar)
             DrawBar(canvas, x, y + valueH + gap, w, theme.BarHeight, spec.PrimaryFraction!.Value, theme, Accent(spec, theme));
@@ -120,12 +120,12 @@ public static class TileRenderer
         {
             capW = Math.Min((int)canvas.MeasureText(caption!, theme.CaptionFontSize) + 4, (int)(w * 0.4f));
             canvas.DrawText(caption!, x, y, capW, contentH, theme.CaptionColor, theme.CaptionFontSize,
-                TextHAlign.Left, TextVAlign.Middle);
+                TextHAlign.Left, TextVAlign.Middle, outlined: theme.OutlineText, outlineColor: theme.OutlineColor);
         }
 
         float valueFont = Math.Min(theme.SecondaryFontSize * 1.25f, contentH - 2);
         DrawValueUnit(canvas, x + capW, y, w - capW, contentH, value, unit,
-            valueFont, theme.UnitFontSize * 0.8f, theme.ValueColor, theme.UnitColor);
+            valueFont, theme.UnitFontSize * 0.8f, theme.ValueColor, theme.UnitColor, theme.OutlineText, theme.OutlineColor);
 
         if (hasBar)
             DrawBar(canvas, x, y + contentH + gap, w, barH, fraction!.Value, theme, accent);
@@ -140,12 +140,12 @@ public static class TileRenderer
         int topH = (int)(contentH * 0.56f);
 
         DrawValueUnit(canvas, x, y, w, topH, spec.PrimaryValue, spec.PrimaryUnit,
-            theme.ValueFontSize, theme.UnitFontSize, theme.ValueColor, theme.UnitColor);
+            theme.ValueFontSize, theme.UnitFontSize, theme.ValueColor, theme.UnitColor, theme.OutlineText, theme.OutlineColor);
 
         if (!string.IsNullOrWhiteSpace(spec.SecondaryValue))
         {
             DrawValueUnit(canvas, x, y + topH, w, contentH - topH, spec.SecondaryValue!, spec.SecondaryUnit ?? string.Empty,
-                theme.SecondaryFontSize, theme.UnitFontSize * 0.85f, theme.SecondaryColor, theme.UnitColor);
+                theme.SecondaryFontSize, theme.UnitFontSize * 0.85f, theme.SecondaryColor, theme.UnitColor, theme.OutlineText, theme.OutlineColor);
         }
 
         if (hasBar)
@@ -182,13 +182,15 @@ public static class TileRenderer
             int rowY = y + i * rowH;
 
             canvas.DrawText(Fit(canvas, row.Label, rowFont, labelColW, false),
-                x, rowY, labelColW, textH, theme.CaptionColor, rowFont, TextHAlign.Left, TextVAlign.Middle);
+                x, rowY, labelColW, textH, theme.CaptionColor, rowFont, TextHAlign.Left, TextVAlign.Middle,
+                outlined: theme.OutlineText, outlineColor: theme.OutlineColor);
 
             string valueText = string.IsNullOrEmpty(row.Unit) ? row.Value : $"{row.Value} {row.Unit}";
             int valueX = x + labelColW;
             int valueW = w - labelColW;
             canvas.DrawText(Fit(canvas, valueText, rowFont, valueW, false),
-                valueX, rowY, valueW, textH, theme.RowColor, rowFont, TextHAlign.Right, TextVAlign.Middle);
+                valueX, rowY, valueW, textH, theme.RowColor, rowFont, TextHAlign.Right, TextVAlign.Middle,
+                outlined: theme.OutlineText, outlineColor: theme.OutlineColor);
 
             if (showRowBar && row.Fraction.HasValue)
                 DrawBar(canvas, x, rowY + textH, w, barH, row.Fraction.Value, theme, accent);
@@ -216,7 +218,8 @@ public static class TileRenderer
     /// unit sits slightly above the value's vertical center per the design.
     /// </summary>
     private static void DrawValueUnit(IRenderCanvas canvas, int x, int y, int w, int h,
-        string value, string unit, float valueFont, float unitFont, PluginColor valueColor, PluginColor unitColor)
+        string value, string unit, float valueFont, float unitFont, PluginColor valueColor, PluginColor unitColor,
+        bool outline, PluginColor outlineColor)
     {
         if (string.IsNullOrEmpty(value))
             return;
@@ -238,14 +241,14 @@ public static class TileRenderer
         int startX = x + (int)Math.Max(0f, (w - total) / 2f);
 
         canvas.DrawText(value, startX, y, (int)Math.Ceiling(numW) + 1, h, valueColor, fitFont,
-            TextHAlign.Left, TextVAlign.Middle, bold: true);
+            TextHAlign.Left, TextVAlign.Middle, bold: true, outlined: outline, outlineColor: outlineColor);
 
         if (hasUnit)
         {
             // Nudge the unit up so it reads as a superscript-ish unit next to the number.
             int unitY = y - (int)(fitFont * 0.12f);
             canvas.DrawText(unit, startX + (int)Math.Ceiling(numW) + gap, unitY, (int)Math.Ceiling(unitW) + 1, h,
-                unitColor, unitFont, TextHAlign.Left, TextVAlign.Middle);
+                unitColor, unitFont, TextHAlign.Left, TextVAlign.Middle, outlined: outline, outlineColor: outlineColor);
         }
     }
 

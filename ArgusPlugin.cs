@@ -10,8 +10,13 @@ namespace LoupixDeck.Plugin.Argus;
 /// </summary>
 public sealed class ArgusPlugin : LoupixPlugin, IMenuContributor, IPluginSettingsPage
 {
+    /// <summary>Settings key: when true, tiles are drawn without an opaque background so the page
+    /// wallpaper shows through. Read by the display command at render time.</summary>
+    public const string TransparentBackgroundKey = "background.transparent";
+
     private readonly ArgusMonitorService _service = new();
     private List<IPluginCommand> _commands = [];
+    private IPluginHost? _host;
 
     public override PluginMetadata Metadata { get; } = new()
     {
@@ -25,6 +30,7 @@ public sealed class ArgusPlugin : LoupixPlugin, IMenuContributor, IPluginSetting
 
     public override void Initialize(IPluginHost host)
     {
+        _host = host;
         _commands = [new ArgusSensorCommand(_service)];
         _service.Start();
     }
@@ -138,7 +144,18 @@ public sealed class ArgusPlugin : LoupixPlugin, IMenuContributor, IPluginSetting
 
     // ───────── IPluginSettingsPage — status only ─────────
 
-    public IReadOnlyList<PluginSettingDescriptor> SettingsSchema { get; } = [];
+    public IReadOnlyList<PluginSettingDescriptor> SettingsSchema { get; } =
+    [
+        new PluginSettingDescriptor
+        {
+            Key = TransparentBackgroundKey,
+            Label = "Transparent background",
+            Kind = PluginSettingKind.Toggle,
+            DefaultValue = false,
+            Description = "Draw tiles without an opaque background so the page wallpaper shows through. " +
+                          "Text is outlined for legibility."
+        }
+    ];
 
     public IReadOnlyList<PluginSettingAction> SettingsActions => _settingsActions ??=
     [
@@ -155,5 +172,8 @@ public sealed class ArgusPlugin : LoupixPlugin, IMenuContributor, IPluginSetting
 
     public void OnSettingsSaved()
     {
+        // Repaint bound touch buttons immediately so a transparency toggle is visible at once
+        // (otherwise it would only apply on the command's next 2s poll).
+        _host?.RequestButtonRefresh("Argus.Sensor");
     }
 }

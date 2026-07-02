@@ -31,8 +31,10 @@ internal sealed class ArgusSensorCommand(ArgusMonitorService argus) : IDisplayIm
         string[] parameters = ctx.Parameters;
         string? sensorRef = parameters is { Length: >= 1 } ? parameters[0] : null;
 
+        bool transparent = ctx.Host.Settings.Get(ArgusPlugin.TransparentBackgroundKey, false);
+
         TileSpec spec = ArgusTileSpecBuilder.Build(sensorRef, argus.Sensors, argus.IsAvailable);
-        TileRenderer.Render(canvas, spec, TileTheme.Default);
+        TileRenderer.Render(canvas, spec, transparent ? TileTheme.Transparent : TileTheme.Default);
         return true;
     }
 
