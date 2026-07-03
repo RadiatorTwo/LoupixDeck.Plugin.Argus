@@ -31,6 +31,14 @@ public readonly record struct SensorTheme
     public int BarHeight { get; init; }
     public int BarRadius { get; init; }
 
+    /// <summary>Horizontal margin on each side of a gauge bar so it is not clipped by the device
+    /// bezel at the left/right edges (bars are narrower than the text column).</summary>
+    public int BarInsetX { get; init; }
+
+    /// <summary>Clearance kept below the lowest content so the bottom-most gauge is not clipped by
+    /// the device bezel at the bottom edge.</summary>
+    public int BarBottomGap { get; init; }
+
     public bool ShowPanel { get; init; }
     public bool ShowBar { get; init; }
 
@@ -78,8 +86,10 @@ public readonly record struct SensorTheme
         Border = new PluginColor(0x30, 0x30, 0x30),
         BarTrack = new PluginColor(0x2C, 0x2C, 0x2C),
         BarFill = new PluginColor(0x6E, 0x6E, 0x6E),
-        BarHeight = 6,
-        BarRadius = 3,
+        BarHeight = 8,
+        BarRadius = 4,
+        BarInsetX = 6,
+        BarBottomGap = 4,
         ShowPanel = true,
         ShowBar = true,
         Inset = 2,

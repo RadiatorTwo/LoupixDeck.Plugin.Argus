@@ -65,7 +65,7 @@ public static class ArgusReadingBuilder
             return Placeholder(HeaderFromRef(rest), "?");
 
         (string value, string unit) = Format(sensor!);
-        return new SensorReading(Header(sensor!), value, unit, Fraction(sensor!, sensors), Accent(sensor!.Type));
+        return new SensorReading(SingleHeader(sensor!, sensors), value, unit, Fraction(sensor!, sensors), Accent(sensor!.Type));
     }
 
     private static IReadOnlyList<SensorReading> BuildDouble(string rest, IReadOnlyList<ArgusSensor> sensors)
@@ -338,6 +338,47 @@ public static class ArgusReadingBuilder
         return string.IsNullOrEmpty(mapped) && !string.IsNullOrWhiteSpace(sensor.Label)
             ? sensor.Label
             : mapped;
+    }
+
+    /// <summary>
+    /// Header for a single reading, disambiguated when the snapshot holds more than one sensor of
+    /// the same type (e.g. per-core temperatures): appends the instance number so "CPU Core" reads
+    /// "CPU Core 7". The number is taken from the sensor's own label (matching what the menu shows)
+    /// with the raw <see cref="ArgusSensor.SensorIndex"/> as a fallback.
+    /// </summary>
+    private static string SingleHeader(ArgusSensor sensor, IReadOnlyList<ArgusSensor> sensors)
+    {
+        string baseHeader = Header(sensor);
+
+        int sameType = 0;
+        foreach (ArgusSensor s in sensors)
+        {
+            if (s.Type == sensor.Type && ++sameType > 1)
+                break;
+        }
+
+        if (sameType <= 1)
+            return baseHeader;
+
+        int number = TrailingNumber(sensor.Label) ?? (int)sensor.SensorIndex;
+        return $"{baseHeader} {number}";
+    }
+
+    /// <summary>Returns the integer at the end of <paramref name="label"/> (e.g. "Core 7" → 7), or
+    /// null when the label has no trailing digits.</summary>
+    private static int? TrailingNumber(string? label)
+    {
+        if (string.IsNullOrEmpty(label))
+            return null;
+
+        int start = label.Length;
+        while (start > 0 && char.IsDigit(label[start - 1]))
+            start--;
+
+        if (start == label.Length)
+            return null;
+
+        return int.TryParse(label.AsSpan(start), out int value) ? value : null;
     }
 
     private static string Header(ArgusSensorType type) => type switch
