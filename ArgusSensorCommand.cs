@@ -1,12 +1,17 @@
+using LoupixDeck.Plugin.Argus.Rendering;
 using LoupixDeck.PluginSdk;
 
 namespace LoupixDeck.Plugin.Argus;
 
 /// <summary>
-/// Display command that renders a single Argus Monitor sensor reading onto a
-/// touch button. The command name is kept identical to the former built-in.
+/// Display command that renders Argus Monitor readings onto a touch button (90×90) via the SDK
+/// image-rendering API. One command carries one sensor; a button's command sequence composes the
+/// tile dynamically — the first (rendering) command reads <see cref="CommandContext.SequenceCommands"/>
+/// and draws one row per sibling command (up to four). The command name and the "Sensor" parameter
+/// are unchanged, and legacy packed parameters (single/double/memory/multi) still render, so buttons
+/// saved before the rework keep working.
 /// </summary>
-internal sealed class ArgusSensorCommand(ArgusMonitorService argus) : IDisplayCommand
+internal sealed class ArgusSensorCommand(ArgusMonitorService argus) : IDisplayImageCommand
 {
     public CommandDescriptor Descriptor { get; } = new()
     {
@@ -23,44 +28,48 @@ internal sealed class ArgusSensorCommand(ArgusMonitorService argus) : IDisplayCo
 
     public TimeSpan UpdateInterval => TimeSpan.FromSeconds(2);
 
-    public string GetText(CommandContext ctx)
+    public bool RenderImage(CommandContext ctx, IRenderCanvas canvas)
     {
-        if (!argus.IsAvailable)
-            return "N/A";
+        bool transparent = ctx.Host.Settings.Get(ArgusPlugin.TransparentBackgroundKey, false);
 
-        var parameters = ctx.Parameters;
-        if (parameters is not { Length: >= 1 } || string.IsNullOrWhiteSpace(parameters[0]))
-            return "?";
+        List<SensorReading> readings = [];
+        foreach (string? sensorRef in SensorReferences(ctx))
+        {
+            readings.AddRange(ArgusReadingBuilder.Build(sensorRef, argus.Sensors, argus.IsAvailable));
+            if (readings.Count >= SensorRenderer.MaxReadings)
+                break;
+        }
 
-        if (!TryParseSensorRef(parameters[0], out var type, out var sensorIndex))
-            return "?";
+        if (readings.Count > SensorRenderer.MaxReadings)
+            readings.RemoveRange(SensorRenderer.MaxReadings, readings.Count - SensorRenderer.MaxReadings);
 
-        var sensor = argus.Sensors.FirstOrDefault(s => s.Type == type && s.SensorIndex == sensorIndex);
-        if (sensor is null)
-            return "?";
+        SensorRenderer.Render(canvas, readings, transparent ? SensorTheme.Transparent : SensorTheme.Default);
+        return true;
+    }
 
-        var unit = string.IsNullOrEmpty(sensor.Unit) ? string.Empty : " " + sensor.Unit;
-        return $"{sensor.Value:F1}{unit}";
+    /// <summary>
+    /// The sensor references to render, in order. On a multi-command button the whole sequence is
+    /// available: take the "Sensor" parameter of every sibling that is also an Argus.Sensor command
+    /// (non-Argus commands in the sequence are ignored). A single-command button reports an empty
+    /// sequence, so fall back to this command's own parameter.
+    /// </summary>
+    private IEnumerable<string?> SensorReferences(CommandContext ctx)
+    {
+        if (ctx.SequenceCommands.Count > 0)
+        {
+            foreach (SequenceCommand command in ctx.SequenceCommands)
+            {
+                if (command.Name != Descriptor.CommandName)
+                    continue;
+
+                yield return command.Parameters is { Length: >= 1 } ? command.Parameters[0] : null;
+            }
+
+            yield break;
+        }
+
+        yield return ctx.Parameters is { Length: >= 1 } ? ctx.Parameters[0] : null;
     }
 
     public Task Execute(CommandContext ctx) => Task.CompletedTask;
-
-    // Reference format: "SensorType:SensorIndex".
-    private static bool TryParseSensorRef(string raw, out ArgusSensorType type, out uint sensorIndex)
-    {
-        type = ArgusSensorType.Invalid;
-        sensorIndex = 0;
-
-        var parts = raw.Split(':', 2, StringSplitOptions.TrimEntries);
-        if (parts.Length == 0 || string.IsNullOrEmpty(parts[0]))
-            return false;
-
-        if (!Enum.TryParse(parts[0], ignoreCase: true, out type) || type == ArgusSensorType.Invalid)
-            return false;
-
-        if (parts.Length < 2 || string.IsNullOrEmpty(parts[1]))
-            return true;
-
-        return uint.TryParse(parts[1], out sensorIndex);
-    }
 }
