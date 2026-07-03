@@ -110,13 +110,16 @@ public static class SensorRenderer
         }
 
         // Start from the row height, cap at the row font, then shrink until the widest label and the
-        // widest value fit side by side — so the value is never cut off at the right edge.
+        // widest value fit side by side. The +2 is a safety margin — MeasureText slightly under-counts
+        // the rendered width, so without it the check passes at a font that actually overflows.
         float rowFont = Math.Clamp(rowH * 0.5f, 8f, theme.RowFontSize);
-        while (rowFont > 8f && WidestLabel(rowFont) + WidestValue(rowFont) + colGap > w)
+        while (rowFont > 8f && WidestLabel(rowFont) + WidestValue(rowFont) + colGap + 2f > w)
             rowFont -= 0.5f;
 
-        // Label column = the widest label; the value column gets the rest (≥ its own width by the fit).
-        int labelColW = Math.Min((int)Math.Ceiling(WidestLabel(rowFont)) + colGap, w - 1);
+        // Size the value column to the widest value so the value is never clipped; the label takes the
+        // rest (the shrink above guarantees that leftover still covers the widest label).
+        int valueColW = Math.Min((int)Math.Ceiling(WidestValue(rowFont)) + 2, Math.Max(1, w - 8));
+        int labelColW = Math.Max(1, w - valueColW);
 
         for (int i = 0; i < n; i++)
         {
