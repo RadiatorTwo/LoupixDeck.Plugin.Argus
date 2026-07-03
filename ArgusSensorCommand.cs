@@ -1,13 +1,15 @@
-using LoupixDeck.Plugin.Argus.Tiles;
+using LoupixDeck.Plugin.Argus.Rendering;
 using LoupixDeck.PluginSdk;
 
 namespace LoupixDeck.Plugin.Argus;
 
 /// <summary>
-/// Display command that renders a single Argus Monitor reading as a compact monitoring tile onto
-/// a touch button (90×90) via the SDK image-rendering API. The command name and the "Sensor"
-/// parameter are unchanged from the former text command, so existing button assignments keep
-/// working — a legacy parameter without a variant tag renders as a single-value tile.
+/// Display command that renders Argus Monitor readings onto a touch button (90×90) via the SDK
+/// image-rendering API. One command carries one sensor; a button's command sequence composes the
+/// tile dynamically — the first (rendering) command reads <see cref="CommandContext.SequenceCommands"/>
+/// and draws one row per sibling command (up to four). The command name and the "Sensor" parameter
+/// are unchanged, and legacy packed parameters (single/double/memory/multi) still render, so buttons
+/// saved before the rework keep working.
 /// </summary>
 internal sealed class ArgusSensorCommand(ArgusMonitorService argus) : IDisplayImageCommand
 {
@@ -28,14 +30,45 @@ internal sealed class ArgusSensorCommand(ArgusMonitorService argus) : IDisplayIm
 
     public bool RenderImage(CommandContext ctx, IRenderCanvas canvas)
     {
-        string[] parameters = ctx.Parameters;
-        string? sensorRef = parameters is { Length: >= 1 } ? parameters[0] : null;
-
         bool transparent = ctx.Host.Settings.Get(ArgusPlugin.TransparentBackgroundKey, false);
 
-        TileSpec spec = ArgusTileSpecBuilder.Build(sensorRef, argus.Sensors, argus.IsAvailable);
-        TileRenderer.Render(canvas, spec, transparent ? TileTheme.Transparent : TileTheme.Default);
+        List<SensorReading> readings = [];
+        foreach (string? sensorRef in SensorReferences(ctx))
+        {
+            readings.AddRange(ArgusReadingBuilder.Build(sensorRef, argus.Sensors, argus.IsAvailable));
+            if (readings.Count >= SensorRenderer.MaxReadings)
+                break;
+        }
+
+        if (readings.Count > SensorRenderer.MaxReadings)
+            readings.RemoveRange(SensorRenderer.MaxReadings, readings.Count - SensorRenderer.MaxReadings);
+
+        SensorRenderer.Render(canvas, readings, transparent ? SensorTheme.Transparent : SensorTheme.Default);
         return true;
+    }
+
+    /// <summary>
+    /// The sensor references to render, in order. On a multi-command button the whole sequence is
+    /// available: take the "Sensor" parameter of every sibling that is also an Argus.Sensor command
+    /// (non-Argus commands in the sequence are ignored). A single-command button reports an empty
+    /// sequence, so fall back to this command's own parameter.
+    /// </summary>
+    private IEnumerable<string?> SensorReferences(CommandContext ctx)
+    {
+        if (ctx.SequenceCommands.Count > 0)
+        {
+            foreach (SequenceCommand command in ctx.SequenceCommands)
+            {
+                if (command.Name != Descriptor.CommandName)
+                    continue;
+
+                yield return command.Parameters is { Length: >= 1 } ? command.Parameters[0] : null;
+            }
+
+            yield break;
+        }
+
+        yield return ctx.Parameters is { Length: >= 1 } ? ctx.Parameters[0] : null;
     }
 
     public Task Execute(CommandContext ctx) => Task.CompletedTask;

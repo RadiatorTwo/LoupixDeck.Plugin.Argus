@@ -1,16 +1,17 @@
-using LoupixDeck.Plugin.Argus.Tiles;
+using LoupixDeck.Plugin.Argus.Rendering;
 using LoupixDeck.PluginSdk;
 
 namespace LoupixDeck.Plugin.Argus;
 
 /// <summary>
-/// Entry point of the Argus Monitor plugin (Windows only). Reads Argus Monitor's
-/// shared-memory data API and exposes one image display command plus a live sensor menu that
-/// builds ready-made monitoring tiles (single value, multi-sensor, memory, double value).
+/// Entry point of the Argus Monitor plugin (Windows only). Reads Argus Monitor's shared-memory data
+/// API and exposes one image display command plus a live sensor menu. Each menu entry assigns a
+/// single sensor; a multi-sensor button is composed by chaining several commands in the button's
+/// sequence (the display command lays them out as rows, up to four).
 /// </summary>
 public sealed class ArgusPlugin : LoupixPlugin, IMenuContributor, IPluginSettingsPage
 {
-    /// <summary>Settings key: when true, tiles are drawn without an opaque background so the page
+    /// <summary>Settings key: when true, buttons are drawn without an opaque background so the page
     /// wallpaper shows through. Read by the display command at render time.</summary>
     public const string TransparentBackgroundKey = "background.transparent";
 
@@ -23,9 +24,9 @@ public sealed class ArgusPlugin : LoupixPlugin, IMenuContributor, IPluginSetting
         Id = "argus",
         Name = "Argus Monitor",
         Version = new Version(1, 0, 0),
-        SdkVersion = new Version(1, 14, 0),
+        SdkVersion = new Version(1, 15, 0),
         Author = "RadiatorTwo",
-        Description = "Display Argus Monitor sensor readings as compact monitoring tiles on touch buttons."
+        Description = "Display Argus Monitor sensor readings on touch buttons; chain several to compose a multi-sensor tile."
     };
 
     public override void Initialize(IPluginHost host)
@@ -56,16 +57,12 @@ public sealed class ArgusPlugin : LoupixPlugin, IMenuContributor, IPluginSetting
         }
         else
         {
-            // Combined / multi-sensor tiles first, where the data supports them.
-            List<MenuNode> tileNodes = BuildTileNodes(sensors);
-            if (tileNodes.Count > 0)
-                groupChildren.Add(new MenuNode { Name = "Tiles", Children = tileNodes });
-
-            // Per-type single-value readings (one selectable tile each).
+            // Per-type single-sensor readings (one selectable command each). Combine several on a
+            // button via its command sequence to get a multi-row tile.
             foreach (IGrouping<ArgusSensorType, ArgusSensor> typeGroup in sensors
                          .Where(s => s.Type != ArgusSensorType.Invalid)
                          .GroupBy(s => s.Type)
-                         .OrderBy(g => ArgusTileSpecBuilder.HeaderFor(g.Key), StringComparer.OrdinalIgnoreCase))
+                         .OrderBy(g => ArgusReadingBuilder.HeaderFor(g.Key), StringComparer.OrdinalIgnoreCase))
             {
                 List<MenuNode> readings = [];
                 foreach (ArgusSensor sensor in typeGroup.OrderBy(s => s.SensorIndex))
@@ -74,12 +71,12 @@ public sealed class ArgusPlugin : LoupixPlugin, IMenuContributor, IPluginSetting
                         ? $"#{sensor.SensorIndex}"
                         : sensor.Label;
 
-                    readings.Add(SensorNode(label, $"single:{sensor.Type}:{sensor.SensorIndex}"));
+                    readings.Add(SensorNode(label, $"{sensor.Type}:{sensor.SensorIndex}"));
                 }
 
                 groupChildren.Add(new MenuNode
                 {
-                    Name = ArgusTileSpecBuilder.HeaderFor(typeGroup.Key),
+                    Name = ArgusReadingBuilder.HeaderFor(typeGroup.Key),
                     Children = readings
                 });
             }
@@ -89,58 +86,12 @@ public sealed class ArgusPlugin : LoupixPlugin, IMenuContributor, IPluginSetting
         return Task.FromResult(result);
     }
 
-    /// <summary>Builds the combined tiles (multi-sensor / memory / double) that the current sensor
-    /// snapshot supports. Each entry pre-bakes the variant + sensor references into the command
-    /// parameter so the renderer knows which layout to draw.</summary>
-    private static List<MenuNode> BuildTileNodes(IReadOnlyList<ArgusSensor> sensors)
-    {
-        List<MenuNode> nodes = [];
-
-        // Multi-sensor tiles: temperature groups with more than one reading (disk temps, cores).
-        foreach (IGrouping<ArgusSensorType, ArgusSensor> group in sensors
-                     .Where(s => IsTemperature(s.Type))
-                     .GroupBy(s => s.Type)
-                     .OrderBy(g => ArgusTileSpecBuilder.HeaderFor(g.Key), StringComparer.OrdinalIgnoreCase))
-        {
-            if (group.Count() < 2)
-                continue;
-
-            string header = ArgusTileSpecBuilder.HeaderFor(group.Key);
-            nodes.Add(SensorNode($"{header} (all)", $"multi:{group.Key}:*"));
-        }
-
-        // GPU memory: pair absolute MB with percent (same subsystem).
-        ArgusSensor? gpuMemMb = sensors.FirstOrDefault(s => s.Type == ArgusSensorType.GpuMemoryUsedMb);
-        ArgusSensor? gpuMemPct = sensors.FirstOrDefault(s => s.Type == ArgusSensorType.GpuMemoryUsedPercent);
-        if (gpuMemMb is not null && gpuMemPct is not null)
-        {
-            nodes.Add(SensorNode("GPU Memory (used + %)",
-                $"memory:GpuMemoryUsedMb:{gpuMemMb.SensorIndex}|GpuMemoryUsedPercent:{gpuMemPct.SensorIndex}"));
-        }
-
-        // CPU frequency average vs. maximum as a double-value tile.
-        bool hasFreqAvg = sensors.Any(s => s.Type == ArgusSensorType.CpuFrequencyAvg);
-        bool hasFreqMax = sensors.Any(s => s.Type == ArgusSensorType.CpuFrequencyMax);
-        if (hasFreqAvg && hasFreqMax)
-        {
-            nodes.Add(SensorNode("CPU Freq (avg / max)",
-                "double:CpuFrequencyAvg:0|CpuFrequencyMax:0"));
-        }
-
-        return nodes;
-    }
-
     private static MenuNode SensorNode(string name, string sensorParameter) => new()
     {
         Name = name,
         CommandName = "Argus.Sensor",
         Parameters = new Dictionary<string, string> { { "Sensor", sensorParameter } }
     };
-
-    private static bool IsTemperature(ArgusSensorType type) => type is
-        ArgusSensorType.Temperature or ArgusSensorType.SyntheticTemperature or
-        ArgusSensorType.CpuTemperature or ArgusSensorType.CpuTemperatureAdditional or
-        ArgusSensorType.GpuTemperature or ArgusSensorType.DiskTemperature;
 
     // ───────── IPluginSettingsPage — status only ─────────
 
@@ -152,7 +103,7 @@ public sealed class ArgusPlugin : LoupixPlugin, IMenuContributor, IPluginSetting
             Label = "Transparent background",
             Kind = PluginSettingKind.Toggle,
             DefaultValue = false,
-            Description = "Draw tiles without an opaque background so the page wallpaper shows through. " +
+            Description = "Draw buttons without an opaque background so the page wallpaper shows through. " +
                           "Text is outlined for legibility."
         }
     ];
