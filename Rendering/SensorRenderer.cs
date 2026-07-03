@@ -95,10 +95,10 @@ public static class SensorRenderer
         // Scale gently with the row height but cap at the row font so 2 rows are not oversized.
         float rowFont = Math.Clamp(rowH * 0.45f, 9f, theme.RowFontSize);
 
-        // Left label column: widest header, capped so the value keeps room.
+        // Left label column: widest (compact) header, capped so the value keeps room.
         float labelW = 0f;
         for (int i = 0; i < n; i++)
-            labelW = Math.Max(labelW, canvas.MeasureText(readings[i].Header, rowFont));
+            labelW = Math.Max(labelW, canvas.MeasureText(RowLabel(readings[i]), rowFont));
         int labelColW = Math.Min((int)labelW + 4, (int)(w * 0.58f));
 
         for (int i = 0; i < n; i++)
@@ -112,7 +112,7 @@ public static class SensorRenderer
             if (textH < 1)
                 textH = rowH;
 
-            canvas.DrawText(Fit(canvas, r.Header, rowFont, labelColW, false),
+            canvas.DrawText(Fit(canvas, RowLabel(r), rowFont, labelColW, false),
                 x, rowY, labelColW, textH, theme.CaptionColor, rowFont, TextHAlign.Left, TextVAlign.Middle,
                 outlined: theme.OutlineText, outlineColor: theme.OutlineColor);
 
@@ -131,6 +131,11 @@ public static class SensorRenderer
             }
         }
     }
+
+    /// <summary>The label to show for a reading in row mode: its compact header when set, else the
+    /// full header.</summary>
+    private static string RowLabel(SensorReading r) =>
+        string.IsNullOrEmpty(r.ShortHeader) ? r.Header : r.ShortHeader!;
 
     /// <summary>Draws a horizontal gauge: a full-width track with an accent fill proportional to
     /// <paramref name="fraction"/> (clamped 0..1).</summary>

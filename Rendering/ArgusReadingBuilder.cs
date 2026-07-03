@@ -65,7 +65,8 @@ public static class ArgusReadingBuilder
             return Placeholder(HeaderFromRef(rest), "?");
 
         (string value, string unit) = Format(sensor!);
-        return new SensorReading(SingleHeader(sensor!, sensors), value, unit, Fraction(sensor!, sensors), Accent(sensor!.Type));
+        string header = SingleHeader(sensor!, sensors);
+        return new SensorReading(header, value, unit, Fraction(sensor!, sensors), Accent(sensor!.Type), ShortHeaderFrom(header));
     }
 
     private static IReadOnlyList<SensorReading> BuildDouble(string rest, IReadOnlyList<ArgusSensor> sensors)
@@ -387,6 +388,20 @@ public static class ArgusReadingBuilder
 
         int number = TrailingNumber(sensor.Label) ?? ordinal;
         return $"{baseHeader} {number}";
+    }
+
+    /// <summary>
+    /// Compact form of a header for use as a row label when several readings share the tile: drops a
+    /// leading "CPU "/"GPU " subsystem word so e.g. "CPU Core 7" fits beside its value as "Core 7".
+    /// Returns the header unchanged when there is nothing to drop.
+    /// </summary>
+    private static string ShortHeaderFrom(string header)
+    {
+        if ((header.StartsWith("CPU ", StringComparison.Ordinal) || header.StartsWith("GPU ", StringComparison.Ordinal))
+            && header.Length > 4)
+            return header[4..];
+
+        return header;
     }
 
     /// <summary>Returns the integer at the end of <paramref name="label"/> (e.g. "Core 7" → 7), or
