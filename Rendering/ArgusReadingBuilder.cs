@@ -157,7 +157,8 @@ public static class ArgusReadingBuilder
 
     // ── Formatting ────────────────────────────────────────────────────────────
 
-    /// <summary>Formats a sensor's value + unit, scaling MB→G for memory-style readings.</summary>
+    /// <summary>Formats a sensor's value + unit, scaling MB→G for memory-style readings and a
+    /// four-digit MHz clock to GHz (e.g. 4200 MHz → 4.2 GHz) so it stays compact on the tile.</summary>
     private static (string value, string unit) Format(ArgusSensor sensor)
     {
         double value = sensor.Value;
@@ -167,6 +168,11 @@ public static class ArgusReadingBuilder
         {
             value /= 1024.0;
             unit = "G";
+        }
+        else if (unit.Equals("MHz", StringComparison.OrdinalIgnoreCase) && value >= 1000.0)
+        {
+            value /= 1000.0;
+            unit = "GHz";
         }
 
         return (FormatNumber(value), unit);
