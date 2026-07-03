@@ -3,13 +3,11 @@ using LoupixDeck.PluginSdk;
 namespace LoupixDeck.Plugin.Argus.Rendering;
 
 /// <summary>
-/// Draws a dynamic monitoring tile onto a host <see cref="IRenderCanvas"/> (a touch button is
-/// 90×90). Pure drawing: it knows nothing about Argus and only lays out the <see cref="SensorReading"/>s
-/// it is handed (1–4). The content is split into one vertical cell per reading; each cell shows its
-/// header on top, a large value+unit below and a gauge at the bottom, with every font scaled to the
-/// cell height — so a single reading fills the tile while four stack compactly and nothing is clipped
-/// horizontally. All sizes derive from <see cref="IRenderCanvas.Width"/>/<see cref="IRenderCanvas.Height"/>
-/// and <see cref="SensorTheme"/>.
+/// Draws a monitoring tile onto a host <see cref="IRenderCanvas"/> (a touch button is 90×90). Pure
+/// drawing: it knows nothing about Argus and only lays out the <see cref="SensorReading"/>s it is
+/// handed (1–4). A single reading fills the tile as a header + big value + gauge; two to four stack
+/// as rows — header left, value+unit right, a gauge under each row. All sizes derive from
+/// <see cref="IRenderCanvas.Width"/>/<see cref="IRenderCanvas.Height"/> and <see cref="SensorTheme"/>.
 /// </summary>
 public static class SensorRenderer
 {
@@ -45,54 +43,92 @@ public static class SensorRenderer
         if (n == 0)
             return;
 
-        // Reserve bottom clearance so the lowest gauge is not clipped by the device bezel; split the
-        // rest into one equal cell per reading (the leftover stays as that bottom clearance).
-        int gridH = Math.Max(1, ch - theme.BarBottomGap);
-        int cellH = Math.Max(1, gridH / n);
-
-        for (int i = 0; i < n; i++)
-            RenderCell(canvas, readings[i], theme, cx, cy + i * cellH, cw, cellH);
+        if (n == 1)
+            RenderSingle(canvas, readings[0], theme, cx, cy, cw, ch);
+        else
+            RenderRows(canvas, readings, n, theme, cx, cy, cw, ch);
     }
 
-    /// <summary>One reading in its cell: header on top, a large value+unit centered below and a gauge
-    /// at the bottom. Fonts scale with the cell height; the gauge is dropped when the cell is too
-    /// short to keep the value legible.</summary>
-    private static void RenderCell(IRenderCanvas canvas, SensorReading r, SensorTheme theme,
+    /// <summary>One reading: centered header band, a large value+unit filling the middle and a
+    /// gauge at the bottom.</summary>
+    private static void RenderSingle(IRenderCanvas canvas, SensorReading r, SensorTheme theme,
         int x, int y, int w, int h)
     {
-        bool hasHeader = !string.IsNullOrWhiteSpace(r.Header);
-        float headerFont = Math.Clamp(h * 0.30f, 8f, theme.HeaderFontSize);
-        int headerH = hasHeader ? (int)Math.Ceiling(headerFont) + 2 : 0;
-        if (headerH > h)
-            headerH = h;
-
-        int remaining = h - headerH;
-
-        // Keep the gauge only when the cell still has room for a legible value above it.
-        const int barGap = 2;
-        bool hasBar = theme.ShowBar && r.Fraction.HasValue && remaining >= theme.BarHeight + barGap + 12;
-        int barH = hasBar ? theme.BarHeight : 0;
-        int valueH = remaining - (hasBar ? barH + barGap : 0);
-
-        if (hasHeader)
+        int headerH = 0;
+        if (!string.IsNullOrWhiteSpace(r.Header))
         {
-            string header = Fit(canvas, r.Header, headerFont, w, bold: false);
-            canvas.DrawText(header, x, y, w, headerH, theme.HeaderColor, headerFont,
+            headerH = (int)theme.HeaderFontSize + 4;
+            string header = Fit(canvas, r.Header, theme.HeaderFontSize, w, bold: false);
+            canvas.DrawText(header, x, y, w, headerH, theme.HeaderColor, theme.HeaderFontSize,
                 TextHAlign.Center, TextVAlign.Middle, outlined: theme.OutlineText, outlineColor: theme.OutlineColor);
         }
 
-        if (valueH > 0)
-        {
-            float valueCap = Math.Clamp(valueH - 1f, 10f, theme.ValueFontSize);
-            DrawValueUnit(canvas, x, y + headerH, w, valueH, r.Value, r.Unit,
-                valueCap, theme.UnitFontSize, theme.ValueColor, theme.UnitColor, theme.OutlineText, theme.OutlineColor);
-        }
+        const int gap = 3;
+        bool hasBar = theme.ShowBar && r.Fraction.HasValue;
+        int barH = hasBar ? theme.BarHeight : 0;
+
+        int bodyY = y + headerH;
+        int bodyH = h - headerH - (hasBar ? barH + theme.BarBottomGap + gap : 0);
+        if (bodyH < 1)
+            return;
+
+        DrawValueUnit(canvas, x, bodyY, w, bodyH, r.Value, r.Unit,
+            theme.ValueFontSize, theme.UnitFontSize, theme.ValueColor, theme.UnitColor, theme.OutlineText, theme.OutlineColor);
 
         if (hasBar)
         {
             int barX = x + theme.BarInsetX;
             int barW = Math.Max(1, w - 2 * theme.BarInsetX);
-            DrawBar(canvas, barX, y + h - barH, barW, barH, r.Fraction!.Value, theme, r.Accent ?? theme.BarFill);
+            DrawBar(canvas, barX, y + h - barH - theme.BarBottomGap, barW, barH, r.Fraction!.Value, theme, r.Accent ?? theme.BarFill);
+        }
+    }
+
+    /// <summary>Two to four readings as stacked rows: header label left, value+unit right, a gauge
+    /// under each row. The row font is capped so it stays legible instead of growing to fill the row.</summary>
+    private static void RenderRows(IRenderCanvas canvas, IReadOnlyList<SensorReading> readings, int n,
+        SensorTheme theme, int x, int y, int w, int h)
+    {
+        // Reserve bottom clearance so the lowest gauge is not clipped by the device bezel.
+        int usable = Math.Max(1, h - theme.BarBottomGap);
+        int rowH = Math.Max(1, usable / n);
+
+        // Scale gently with the row height but cap at the row font so 2 rows are not oversized.
+        float rowFont = Math.Clamp(rowH * 0.45f, 9f, theme.RowFontSize);
+
+        // Left label column: widest header, capped so the value keeps room.
+        float labelW = 0f;
+        for (int i = 0; i < n; i++)
+            labelW = Math.Max(labelW, canvas.MeasureText(readings[i].Header, rowFont));
+        int labelColW = Math.Min((int)labelW + 4, (int)(w * 0.58f));
+
+        for (int i = 0; i < n; i++)
+        {
+            SensorReading r = readings[i];
+            int rowY = y + i * rowH;
+
+            bool hasBar = theme.ShowBar && r.Fraction.HasValue;
+            int barH = hasBar ? Math.Clamp(rowH - (int)rowFont - 3, 3, theme.BarHeight) : 0;
+            int textH = rowH - (hasBar ? barH + 1 : 0);
+            if (textH < 1)
+                textH = rowH;
+
+            canvas.DrawText(Fit(canvas, r.Header, rowFont, labelColW, false),
+                x, rowY, labelColW, textH, theme.CaptionColor, rowFont, TextHAlign.Left, TextVAlign.Middle,
+                outlined: theme.OutlineText, outlineColor: theme.OutlineColor);
+
+            string valueText = string.IsNullOrEmpty(r.Unit) ? r.Value : $"{r.Value} {r.Unit}";
+            int valueX = x + labelColW;
+            int valueW = w - labelColW;
+            canvas.DrawText(Fit(canvas, valueText, rowFont, valueW, false),
+                valueX, rowY, valueW, textH, theme.RowColor, rowFont, TextHAlign.Right, TextVAlign.Middle,
+                outlined: theme.OutlineText, outlineColor: theme.OutlineColor);
+
+            if (hasBar)
+            {
+                int barX = x + theme.BarInsetX;
+                int barW = Math.Max(1, w - 2 * theme.BarInsetX);
+                DrawBar(canvas, barX, rowY + textH, barW, barH, r.Fraction!.Value, theme, r.Accent ?? theme.BarFill);
+            }
         }
     }
 
