@@ -97,7 +97,7 @@ public readonly record struct SensorTheme
         CornerRadius = 8,
         BorderWidth = 1,
 
-        HeaderColor = new PluginColor(0x8C, 0x8C, 0x8C),
+        HeaderColor = new PluginColor(0xC8, 0xC8, 0xC8),
         HeaderFontSize = 11f,
 
         ValueColor = new PluginColor(0xEC, 0xEC, 0xEC),
@@ -106,7 +106,7 @@ public readonly record struct SensorTheme
         UnitColor = new PluginColor(0x9C, 0x9C, 0x9C),
         UnitFontSize = 13f,
 
-        CaptionColor = new PluginColor(0x8C, 0x8C, 0x8C),
+        CaptionColor = new PluginColor(0xC8, 0xC8, 0xC8),
         CaptionFontSize = 11f,
 
         RowColor = new PluginColor(0xD0, 0xD0, 0xD0),
@@ -123,6 +123,8 @@ public readonly record struct SensorTheme
         Background = PluginColor.Transparent,
         ShowPanel = false,
         OutlineText = true,
-        OutlineColor = PluginColor.Black
+        // A soft, semi-transparent halo rather than a hard black rim — the host strokes the outline
+        // at a fixed 3px, which reads as a heavy black border on thin label glyphs at full opacity.
+        OutlineColor = new PluginColor(0x00, 0x00, 0x00, 0x80)
     };
 }
