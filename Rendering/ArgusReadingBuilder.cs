@@ -113,7 +113,7 @@ public static class ArgusReadingBuilder
 
     private static IReadOnlyList<SensorReading> BuildMulti(string rest, IReadOnlyList<ArgusSensor> sensors)
     {
-        // "<Type>:<idx>,<idx>,..." or "<Type>:*"
+        // "<Type>:<idx>,<idx>,..." or "<Type>:*" — indices are ordinal positions within the type.
         int colon = rest.IndexOf(':');
         string typeToken = colon > 0 ? rest[..colon] : rest;
         string indexToken = colon > 0 ? rest[(colon + 1)..] : "*";
@@ -121,33 +121,35 @@ public static class ArgusReadingBuilder
         if (!Enum.TryParse(typeToken, ignoreCase: true, out ArgusSensorType type) || type == ArgusSensorType.Invalid)
             return [Placeholder("Argus", "?")];
 
-        List<ArgusSensor> matches;
-        if (indexToken.Trim() == "*")
-        {
-            matches = sensors.Where(s => s.Type == type).OrderBy(s => s.SensorIndex).ToList();
-        }
-        else
-        {
-            HashSet<uint> wanted = indexToken
-                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .Select(t => uint.TryParse(t, out uint i) ? i : uint.MaxValue)
-                .Where(i => i != uint.MaxValue)
-                .ToHashSet();
-            matches = sensors.Where(s => s.Type == type && wanted.Contains(s.SensorIndex))
-                .OrderBy(s => s.SensorIndex).ToList();
-        }
-
-        if (matches.Count == 0)
+        List<ArgusSensor> group = SensorsOfType(sensors, type);
+        if (group.Count == 0)
             return [Placeholder(Header(type), "?")];
 
-        bool isTemp = IsTemperature(type);
-        List<SensorReading> readings = new(matches.Count);
-        foreach (ArgusSensor sensor in matches)
+        HashSet<int>? wanted = null;
+        if (indexToken.Trim() != "*")
         {
+            wanted = indexToken
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(t => int.TryParse(t, out int i) ? i : -1)
+                .Where(i => i >= 0)
+                .ToHashSet();
+        }
+
+        bool isTemp = IsTemperature(type);
+        List<SensorReading> readings = [];
+        for (int ordinal = 0; ordinal < group.Count; ordinal++)
+        {
+            if (wanted is not null && !wanted.Contains(ordinal))
+                continue;
+
+            ArgusSensor sensor = group[ordinal];
             (string value, string unit) = Format(sensor);
-            string label = isTemp ? $"T{sensor.SensorIndex + 1}" : $"#{sensor.SensorIndex}";
+            string label = isTemp ? $"T{ordinal + 1}" : $"#{ordinal}";
             readings.Add(new SensorReading(label, value, unit, Fraction(sensor, sensors), Accent(type)));
         }
+
+        if (readings.Count == 0)
+            return [Placeholder(Header(type), "?")];
 
         return readings;
     }
@@ -292,8 +294,25 @@ public static class ArgusReadingBuilder
         if (!TryParseRef(reference, out ArgusSensorType type, out uint index))
             return false;
 
-        sensor = sensors.FirstOrDefault(s => s.Type == type && s.SensorIndex == index);
+        // A sensor is identified by its ordinal position within its type, in Argus report order —
+        // Argus does not give per-instance sensors (e.g. CPU cores) a distinct SensorIndex, so the
+        // raw field cannot be used to tell them apart.
+        sensor = SensorsOfType(sensors, type).ElementAtOrDefault((int)index);
         return sensor is not null;
+    }
+
+    /// <summary>The sensors of a given type, in the order Argus reports them (the ordinal position in
+    /// this list is the stable per-type index used by both the menu and the lookup).</summary>
+    private static List<ArgusSensor> SensorsOfType(IReadOnlyList<ArgusSensor> sensors, ArgusSensorType type)
+    {
+        List<ArgusSensor> result = [];
+        foreach (ArgusSensor sensor in sensors)
+        {
+            if (sensor.Type == type)
+                result.Add(sensor);
+        }
+
+        return result;
     }
 
     private static bool TryParseRef(string raw, out ArgusSensorType type, out uint index)
@@ -350,17 +369,23 @@ public static class ArgusReadingBuilder
     {
         string baseHeader = Header(sensor);
 
-        int sameType = 0;
-        foreach (ArgusSensor s in sensors)
-        {
-            if (s.Type == sensor.Type && ++sameType > 1)
-                break;
-        }
-
-        if (sameType <= 1)
+        List<ArgusSensor> sameType = SensorsOfType(sensors, sensor.Type);
+        if (sameType.Count <= 1)
             return baseHeader;
 
-        int number = TrailingNumber(sensor.Label) ?? (int)sensor.SensorIndex;
+        // Prefer the number the sensor reports in its label (matches the menu); otherwise its ordinal
+        // position within the type — SensorIndex is not reliable for per-instance sensors.
+        int ordinal = 0;
+        for (int i = 0; i < sameType.Count; i++)
+        {
+            if (ReferenceEquals(sameType[i], sensor))
+            {
+                ordinal = i;
+                break;
+            }
+        }
+
+        int number = TrailingNumber(sensor.Label) ?? ordinal;
         return $"{baseHeader} {number}";
     }
 

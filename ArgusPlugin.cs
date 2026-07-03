@@ -64,14 +64,19 @@ public sealed class ArgusPlugin : LoupixPlugin, IMenuContributor, IPluginSetting
                          .GroupBy(s => s.Type)
                          .OrderBy(g => ArgusReadingBuilder.HeaderFor(g.Key), StringComparer.OrdinalIgnoreCase))
             {
+                // The parameter uses the sensor's ordinal position within its type (Argus report
+                // order), because per-instance sensors (e.g. CPU cores) do not carry a distinct
+                // SensorIndex — keep this order in lock-step with ArgusReadingBuilder's lookup.
                 List<MenuNode> readings = [];
-                foreach (ArgusSensor sensor in typeGroup.OrderBy(s => s.SensorIndex))
+                int ordinal = 0;
+                foreach (ArgusSensor sensor in typeGroup)
                 {
                     string label = string.IsNullOrWhiteSpace(sensor.Label)
-                        ? $"#{sensor.SensorIndex}"
+                        ? $"#{ordinal}"
                         : sensor.Label;
 
-                    readings.Add(SensorNode(label, $"{sensor.Type}:{sensor.SensorIndex}"));
+                    readings.Add(SensorNode(label, $"{sensor.Type}:{ordinal}"));
+                    ordinal++;
                 }
 
                 groupChildren.Add(new MenuNode
