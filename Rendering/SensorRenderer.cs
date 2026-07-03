@@ -92,14 +92,31 @@ public static class SensorRenderer
         int usable = Math.Max(1, h - theme.BarBottomGap);
         int rowH = Math.Max(1, usable / n);
 
-        // Scale gently with the row height but cap at the row font so 2 rows are not oversized.
-        float rowFont = Math.Clamp(rowH * 0.45f, 9f, theme.RowFontSize);
+        // Widest label / value across the rows at a given font — used to fit both columns.
+        const int colGap = 4;
+        float WidestLabel(float f)
+        {
+            float m = 0f;
+            for (int i = 0; i < n; i++)
+                m = Math.Max(m, canvas.MeasureText(RowLabel(readings[i]), f));
+            return m;
+        }
+        float WidestValue(float f)
+        {
+            float m = 0f;
+            for (int i = 0; i < n; i++)
+                m = Math.Max(m, canvas.MeasureText(ValueText(readings[i]), f));
+            return m;
+        }
 
-        // Left label column: widest (compact) header, capped so the value keeps room.
-        float labelW = 0f;
-        for (int i = 0; i < n; i++)
-            labelW = Math.Max(labelW, canvas.MeasureText(RowLabel(readings[i]), rowFont));
-        int labelColW = Math.Min((int)labelW + 4, (int)(w * 0.58f));
+        // Start from the row height, cap at the row font, then shrink until the widest label and the
+        // widest value fit side by side — so the value is never cut off at the right edge.
+        float rowFont = Math.Clamp(rowH * 0.5f, 8f, theme.RowFontSize);
+        while (rowFont > 8f && WidestLabel(rowFont) + WidestValue(rowFont) + colGap > w)
+            rowFont -= 0.5f;
+
+        // Label column = the widest label; the value column gets the rest (≥ its own width by the fit).
+        int labelColW = Math.Min((int)Math.Ceiling(WidestLabel(rowFont)) + colGap, w - 1);
 
         for (int i = 0; i < n; i++)
         {
@@ -116,10 +133,9 @@ public static class SensorRenderer
                 x, rowY, labelColW, textH, theme.CaptionColor, rowFont, TextHAlign.Left, TextVAlign.Middle,
                 outlined: theme.OutlineText, outlineColor: theme.OutlineColor);
 
-            string valueText = string.IsNullOrEmpty(r.Unit) ? r.Value : $"{r.Value} {r.Unit}";
             int valueX = x + labelColW;
             int valueW = w - labelColW;
-            canvas.DrawText(Fit(canvas, valueText, rowFont, valueW, false),
+            canvas.DrawText(Fit(canvas, ValueText(r), rowFont, valueW, false),
                 valueX, rowY, valueW, textH, theme.RowColor, rowFont, TextHAlign.Right, TextVAlign.Middle,
                 outlined: theme.OutlineText, outlineColor: theme.OutlineColor);
 
@@ -136,6 +152,10 @@ public static class SensorRenderer
     /// full header.</summary>
     private static string RowLabel(SensorReading r) =>
         string.IsNullOrEmpty(r.ShortHeader) ? r.Header : r.ShortHeader!;
+
+    /// <summary>The value + unit shown on the right of a row (unit omitted when empty).</summary>
+    private static string ValueText(SensorReading r) =>
+        string.IsNullOrEmpty(r.Unit) ? r.Value : $"{r.Value} {r.Unit}";
 
     /// <summary>Draws a horizontal gauge: a full-width track with an accent fill proportional to
     /// <paramref name="fraction"/> (clamped 0..1).</summary>
