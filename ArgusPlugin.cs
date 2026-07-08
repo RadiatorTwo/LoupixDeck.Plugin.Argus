@@ -24,7 +24,7 @@ public sealed class ArgusPlugin : LoupixPlugin, IMenuContributor, IPluginSetting
         Id = "argus",
         Name = "Argus Monitor",
         Version = new Version(1, 0, 0),
-        SdkVersion = new Version(1, 15, 0),
+        SdkVersion = new Version(1, 16, 0),
         Author = "RadiatorTwo",
         Description = "Display Argus Monitor sensor readings on touch buttons; chain several to compose a multi-sensor tile."
     };
@@ -39,6 +39,17 @@ public sealed class ArgusPlugin : LoupixPlugin, IMenuContributor, IPluginSetting
     public override void Shutdown() => _service.Stop();
 
     public override IEnumerable<IPluginCommand> GetCommands() => _commands;
+
+    public override IReadOnlyList<CommandGroupDescriptor> GetCommandGroups() =>
+    [
+        new CommandGroupDescriptor
+        {
+            Group = "Argus Monitor",
+            Description = "System sensors and monitoring",
+            Icon = "\U000F0379",
+            Section = CommandGroupSection.Plugins
+        }
+    ];
 
     // ───────── IMenuContributor — dynamic sensor tree ─────────
 

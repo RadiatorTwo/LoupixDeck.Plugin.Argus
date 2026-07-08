@@ -18,6 +18,8 @@ internal sealed class ArgusSensorCommand(ArgusMonitorService argus) : IDisplayIm
         CommandName = "Argus.Sensor",
         DisplayName = "Argus Sensor",
         Group = "Argus Monitor",
+        Icon = "\U000F0379",
+        Description = "Show a hardware sensor reading on a touch button",
         ParameterTemplate = "({Sensor})",
         Parameters = [new CommandParameter("Sensor", typeof(string))],
         // Surfaced per sensor through the dynamic menu.
