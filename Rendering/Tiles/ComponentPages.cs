@@ -46,23 +46,32 @@ internal static class ComponentPages
 
     public static IReadOnlyList<ComponentPage> All { get; } = [Cpu, Gpu, Ram, Net, Disk, Summary];
 
-    /// <summary>The cycle used when a tile names no pages: every component page, then the summary.</summary>
-    public const string DefaultSelection = "cpu,gpu,ram,net,disk,sum";
+    /// <summary>The cycle used when a tile names no pages: every component page, then the summary.
+    /// Separated by '|' because the host splits a command's parameters at commas.</summary>
+    public const string DefaultSelection = "cpu|gpu|ram|net|disk|sum";
 
-    /// <summary>Parses a comma-separated page list ("cpu,gpu,sum"). Unknown ids are skipped; an
-    /// empty or entirely unknown list falls back to <see cref="DefaultSelection"/>.</summary>
-    public static IReadOnlyList<ComponentPage> Parse(string? selection)
+    private static readonly char[] Separators = ['|', ',', ' ', ';'];
+
+    /// <summary>
+    /// Parses page lists ("cpu|gpu|sum") in order. Every entry may itself hold several ids, so a
+    /// list the host split at commas ("cpu", "gpu") reads the same as one joined by '|'. Unknown
+    /// ids are skipped; nothing known at all falls back to <see cref="DefaultSelection"/>.
+    /// </summary>
+    public static IReadOnlyList<ComponentPage> Parse(IEnumerable<string?> selections)
     {
         List<ComponentPage> pages = [];
-        foreach (string id in (selection ?? string.Empty).Split(',',
-                     StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        foreach (string? selection in selections)
         {
-            ComponentPage? page = All.FirstOrDefault(p => p.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
-            if (page is not null)
-                pages.Add(page);
+            foreach (string id in (selection ?? string.Empty).Split(Separators,
+                         StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                ComponentPage? page = All.FirstOrDefault(p => p.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
+                if (page is not null)
+                    pages.Add(page);
+            }
         }
 
-        return pages.Count > 0 ? pages : Parse(DefaultSelection);
+        return pages.Count > 0 ? pages : Parse([DefaultSelection]);
     }
 
     /// <summary>A page is shown only while its hero metric has data (e.g. NET disappears when

@@ -10,15 +10,16 @@ namespace LoupixDeck.Plugin.Argus;
 /// <summary>
 /// A paging hardware tile (design Fig. 1): one component per page — CPU, GPU, RAM, NET, DISK and
 /// the all-at-once summary — and a key press moves that button to the next page. The "Pages"
-/// parameter lists the cycle ("cpu,gpu,sum"); a single id makes a fixed tile. Pages without data
-/// (e.g. NET while Argus' network monitoring is off) are skipped, and the header's n/N counts only
-/// the pages shown. The current page is kept per button and resets on a restart.
+/// parameter lists pages separated by '|' ("cpu|gpu|sum"); several Argus.Pages commands chained on
+/// one button add up to one cycle in sequence order, so each command can carry a single page. Pages
+/// without data (e.g. NET while Argus' network monitoring is off) are skipped, and the header's n/N
+/// counts only the pages shown. The current page is kept per button and resets on a restart.
 /// </summary>
 internal sealed class ArgusPagesCommand(TelemetrySampler telemetry) : IAnimatedDisplayCommand, IDisplayImageCommand
 {
     public const string CommandName = "Argus.Pages";
 
-    private readonly ConcurrentDictionary<string, int> _positions = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, Cycle> _cycles = new(StringComparer.Ordinal);
 
     public CommandDescriptor Descriptor { get; } = new()
     {
@@ -39,9 +40,14 @@ internal sealed class ArgusPagesCommand(TelemetrySampler telemetry) : IAnimatedD
 
     public TimeSpan UpdateInterval => TimeSpan.FromMilliseconds(500);
 
+    /// <summary>
+    /// The host runs every command of a button's chain on a press, so a button with N chained
+    /// Argus.Pages commands calls this N times per press; the page advances once per N calls. N is
+    /// learned from the render call, which sees the whole chain.
+    /// </summary>
     public Task Execute(CommandContext ctx)
     {
-        _positions.AddOrUpdate(PositionKey(ctx), 1, (_, position) => position + 1);
+        _cycles.GetOrAdd(PositionKey(ctx), _ => new Cycle()).Press();
         return Task.CompletedTask;
     }
 
@@ -63,7 +69,8 @@ internal sealed class ArgusPagesCommand(TelemetrySampler telemetry) : IAnimatedD
             return;
         }
 
-        IReadOnlyList<ComponentPage> selected = ComponentPages.Parse(Selection(ctx));
+        (IReadOnlyList<string?> selections, int commandsPerPress) = Selections(ctx);
+        IReadOnlyList<ComponentPage> selected = ComponentPages.Parse(selections);
         List<ComponentPage> pages = selected.Where(page => ComponentPages.IsAvailable(page, frame)).ToList();
         if (pages.Count == 0)
         {
@@ -71,14 +78,55 @@ internal sealed class ArgusPagesCommand(TelemetrySampler telemetry) : IAnimatedD
             return;
         }
 
-        int index = _positions.GetValueOrDefault(PositionKey(ctx)) % pages.Count;
-        PageLayout.Draw(surface, pages[index], index + 1, pages.Count, frame, blinkOn);
+        Cycle cycle = _cycles.GetOrAdd(PositionKey(ctx), _ => new Cycle());
+        cycle.CommandsPerPress = commandsPerPress;
+        int index = cycle.Position % pages.Count;
+        string? pageIndex = pages.Count > 1 ? $"{index + 1}/{pages.Count}" : null;
+        PageLayout.Draw(surface, pages[index], pageIndex, frame, blinkOn);
     }
 
-    /// <summary>The pressed/rendered button; on a host without button keys, every button with the
-    /// same page list shares one position.</summary>
-    private static string PositionKey(CommandContext ctx) => ButtonKeys.For(ctx, "pages:" + Selection(ctx));
+    /// <summary>
+    /// The page lists of this button in chain order, and how many Argus.Pages commands a press
+    /// executes. A single-command button reports no sequence, so its own parameters are the list.
+    /// Without a button key the position is keyed by the first command's own list, which only that
+    /// command's Execute advances — so one call per press counts there.
+    /// </summary>
+    private static (IReadOnlyList<string?> Selections, int CommandsPerPress) Selections(CommandContext ctx)
+    {
+        List<SequenceCommand> chained = ctx.SequenceCommands.Where(c => c.Name == CommandName).ToList();
+        if (chained.Count == 0)
+            return (ctx.Parameters, 1);
 
-    private static string Selection(CommandContext ctx) =>
-        ctx.Parameters is { Length: >= 1 } ? ctx.Parameters[0] : ComponentPages.DefaultSelection;
+        List<string?> selections = chained.SelectMany(c => c.Parameters).Select(p => (string?)p).ToList();
+        bool keyed = ButtonKeys.For(ctx, string.Empty).Length > 0;
+        return (selections, keyed ? chained.Count : 1);
+    }
+
+    /// <summary>The pressed/rendered button; on a host without button keys, every button whose
+    /// (first) command carries the same page list shares one position.</summary>
+    private static string PositionKey(CommandContext ctx) =>
+        ButtonKeys.For(ctx, "pages:" + string.Join("|", ctx.Parameters));
+
+    /// <summary>Page position of one button, advanced once per press.</summary>
+    private sealed class Cycle
+    {
+        private readonly Lock _gate = new();
+        private int _calls;
+
+        public int Position { get; private set; }
+
+        public int CommandsPerPress { get; set; } = 1;
+
+        public void Press()
+        {
+            lock (_gate)
+            {
+                if (++_calls < Math.Max(1, CommandsPerPress))
+                    return;
+
+                _calls = 0;
+                Position++;
+            }
+        }
+    }
 }

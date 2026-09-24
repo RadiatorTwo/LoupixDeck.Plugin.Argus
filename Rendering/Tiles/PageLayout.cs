@@ -17,8 +17,9 @@ internal static class PageLayout
     private const int RowPitch = 10;
     private const int MaxRows = 3;
 
-    public static void Draw(PixelSurface surface, ComponentPage page, int pageNumber, int pageCount,
-        TelemetryFrame frame, bool blinkOn)
+    /// <param name="pageIndex">"n/N" for the header, or null on a tile that shows a single page.</param>
+    public static void Draw(PixelSurface surface, ComponentPage page, string? pageIndex, TelemetryFrame frame,
+        bool blinkOn)
     {
         if (page.IsSummary)
         {
@@ -31,7 +32,7 @@ internal static class PageLayout
         List<MetricSnapshot?> rows = page.Rows.Take(MaxRows).Select(r => frame.Get(r.Metric)).ToList();
 
         MetricState worst = TileDrawing.Worst(rows.Prepend(hero));
-        TileDrawing.Header(surface, page.Title, $"{pageNumber}/{pageCount}", worst, blinkOn);
+        TileDrawing.Header(surface, page.Title, pageIndex, worst, blinkOn);
 
         if (hero is null)
         {
