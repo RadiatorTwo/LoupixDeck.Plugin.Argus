@@ -62,6 +62,10 @@ public static class ArgusReadingBuilder
         if (!TryFindSensor(rest, sensors, out ArgusSensor? sensor, out string key))
             return Placeholder(HeaderFromRef(rest));
 
+        // The menu's name for the sensor; types the menu does not offer keep the generic header.
+        if (TileLabels.For(sensors, key) is { } labels)
+            return new SensorRow(labels.Header, labels.Short, key);
+
         string header = SingleHeader(sensor!, sensors);
         return new SensorRow(header, ShortHeaderFrom(header), key);
     }
