@@ -1,13 +1,15 @@
 using LoupixDeck.Plugin.Argus.Rendering;
+using LoupixDeck.Plugin.Argus.Rendering.Tiles;
+using LoupixDeck.Plugin.Argus.Telemetry;
 using LoupixDeck.PluginSdk;
 
 namespace LoupixDeck.Plugin.Argus;
 
 /// <summary>
 /// Entry point of the Argus Monitor plugin (Windows only). Reads Argus Monitor's shared-memory data
-/// API and exposes one image display command plus a live sensor menu. Each menu entry assigns a
-/// single sensor; a multi-sensor button is composed by chaining several commands in the button's
-/// sequence (the display command lays them out as rows, up to four).
+/// API, samples it once a second into histories and alert states, and exposes two pixel-tile
+/// display commands through a live menu: <c>Argus.Sensor</c> (one sensor per command; chain several
+/// for a multi-row tile) and <c>Argus.Pages</c> (component pages, a key press shows the next one).
 /// </summary>
 public sealed class ArgusPlugin : LoupixPlugin, IMenuContributor, IPluginSettingsPage
 {
@@ -15,7 +17,14 @@ public sealed class ArgusPlugin : LoupixPlugin, IMenuContributor, IPluginSetting
     /// wallpaper shows through. Read by the display command at render time.</summary>
     public const string TransparentBackgroundKey = "background.transparent";
 
+    /// <summary>Settings key: the CPU's maximum junction temperature in °C. CPU warn/critical
+    /// limits are TjMax − 15 / TjMax − 5, since Argus does not report TjMax itself.</summary>
+    public const string CpuTjMaxKey = "thresholds.cpuTjMax";
+
+    private const long DefaultTjMax = 100;
+
     private readonly ArgusMonitorService _service = new();
+    private TelemetrySampler? _telemetry;
     private List<IPluginCommand> _commands = [];
     private IPluginHost? _host;
 
@@ -32,11 +41,23 @@ public sealed class ArgusPlugin : LoupixPlugin, IMenuContributor, IPluginSetting
     public override void Initialize(IPluginHost host)
     {
         _host = host;
-        _commands = [new ArgusSensorCommand(_service)];
+        _telemetry = new TelemetrySampler(_service, ReadTjMax);
+        _commands = [new ArgusSensorCommand(_telemetry), new ArgusPagesCommand(_telemetry)];
         _service.Start();
+        _telemetry.Start();
     }
 
-    public override void Shutdown() => _service.Stop();
+    public override void Shutdown()
+    {
+        _telemetry?.Stop();
+        _service.Stop();
+    }
+
+    private double ReadTjMax()
+    {
+        long tjMax = _host?.Settings.Get(CpuTjMaxKey, DefaultTjMax) ?? DefaultTjMax;
+        return Math.Clamp(tjMax, 60, 125);
+    }
 
     public override IEnumerable<IPluginCommand> GetCommands() => _commands;
 
@@ -68,6 +89,8 @@ public sealed class ArgusPlugin : LoupixPlugin, IMenuContributor, IPluginSetting
         }
         else
         {
+            groupChildren.Add(new MenuNode { Name = "Pages", Children = PageNodes() });
+
             // Per-type single-sensor readings (one selectable command each). Combine several on a
             // button via its command sequence to get a multi-row tile.
             foreach (IGrouping<ArgusSensorType, ArgusSensor> typeGroup in sensors
@@ -102,6 +125,25 @@ public sealed class ArgusPlugin : LoupixPlugin, IMenuContributor, IPluginSetting
         return Task.FromResult(result);
     }
 
+    /// <summary>The paging tile (every page, press for the next) and one fixed tile per page.</summary>
+    private static List<MenuNode> PageNodes() =>
+    [
+        PagesNode("All pages (press to cycle)", ComponentPages.DefaultSelection),
+        PagesNode("CPU page", ComponentPages.Cpu.Id),
+        PagesNode("GPU page", ComponentPages.Gpu.Id),
+        PagesNode("RAM page", ComponentPages.Ram.Id),
+        PagesNode("Network page", ComponentPages.Net.Id),
+        PagesNode("Disk page", ComponentPages.Disk.Id),
+        PagesNode("CPU summary", ComponentPages.Summary.Id)
+    ];
+
+    private static MenuNode PagesNode(string name, string pages) => new()
+    {
+        Name = name,
+        CommandName = ArgusPagesCommand.CommandName,
+        Parameters = new Dictionary<string, string> { { "Pages", pages } }
+    };
+
     private static MenuNode SensorNode(string name, string sensorParameter) => new()
     {
         Name = name,
@@ -120,7 +162,17 @@ public sealed class ArgusPlugin : LoupixPlugin, IMenuContributor, IPluginSetting
             Kind = PluginSettingKind.Toggle,
             DefaultValue = false,
             Description = "Draw buttons without an opaque background so the page wallpaper shows through. " +
-                          "Text is outlined for legibility."
+                          "Text gets a 1-pixel shadow for legibility."
+        },
+        new PluginSettingDescriptor
+        {
+            Key = CpuTjMaxKey,
+            Label = "CPU TjMax (°C)",
+            Kind = PluginSettingKind.Number,
+            DefaultValue = DefaultTjMax,
+            Description = "Maximum junction temperature of your CPU, from the vendor's spec sheet " +
+                          "(typically 95 for AMD Ryzen, 100–105 for Intel). CPU temperature turns amber " +
+                          "at TjMax − 15 and red at TjMax − 5."
         }
     ];
 
@@ -139,8 +191,9 @@ public sealed class ArgusPlugin : LoupixPlugin, IMenuContributor, IPluginSetting
 
     public void OnSettingsSaved()
     {
-        // Repaint bound touch buttons immediately so a transparency toggle is visible at once
-        // (otherwise it would only apply on the command's next 2s poll).
+        // Tiles redraw several times a second and pick up the new settings on their own; this
+        // only covers a host that drives them through the slower poll path.
         _host?.RequestButtonRefresh("Argus.Sensor");
+        _host?.RequestButtonRefresh(ArgusPagesCommand.CommandName);
     }
 }
