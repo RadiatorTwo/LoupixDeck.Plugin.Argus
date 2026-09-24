@@ -6,7 +6,7 @@ namespace LoupixDeck.Plugin.Argus.Rendering.Tiles;
 /// <summary>
 /// Draws an Argus.Sensor tile. One reading gets the page anatomy — header, hero value, bar and a
 /// history chart below. Two to four readings stack as the 18-px rows of layout B, centred
-/// vertically.
+/// vertically; two readings also get a gauge bar under each row.
 /// </summary>
 internal static class SensorTileLayout
 {
@@ -33,9 +33,11 @@ internal static class SensorTileLayout
         List<(string, MetricSnapshot?)> grid = rows.Take(MaxRows)
             .Select(r => (r.ShortHeader, Resolve(r, frame)))
             .ToList();
-        int blockHeight = (18 * grid.Count) - 2;
+        // Two rows leave room for a gauge bar under each; three and four fill the grid as they are.
+        bool bars = grid.Count == 2;
+        int blockHeight = PageLayout.GridHeight(grid.Count, bars);
         int top = PixelSurface.Top + ((PixelSurface.ContentSize - blockHeight) / 2);
-        PageLayout.DrawGrid(surface, grid, blinkOn, top);
+        PageLayout.DrawGrid(surface, grid, blinkOn, top, bars);
     }
 
     private static void DrawSingle(PixelSurface surface, SensorRow row, TelemetryFrame frame, bool blinkOn)

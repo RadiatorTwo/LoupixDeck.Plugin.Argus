@@ -84,18 +84,34 @@ internal static class PageLayout
         surface.TextRight(text, TileDrawing.R, y, color);
     }
 
+    /// <summary>Row pitch of the grid without and with a gauge bar under each row.</summary>
+    public const int GridPitch = 18;
+    public const int BarGridPitch = 31;
+
+    /// <summary>Offset of the gauge bar below a row's top, and its height.</summary>
+    private const int GridBarOffset = 18;
+    private const int GridBarHeight = 3;
+
+    /// <summary>Height of a grid of <paramref name="count"/> rows, from the first row's top to the
+    /// last drawn pixel.</summary>
+    public static int GridHeight(int count, bool bars) => bars
+        ? (BarGridPitch * (count - 1)) + GridBarOffset + GridBarHeight
+        : (GridPitch * count) - 2;
+
     /// <summary>
     /// Layout B: up to four 18-px rows, label and unit stacked left at 1×, value right at 2× with
-    /// 1-px spacing. An alerting row is filled (warn, critical on) or framed (critical off).
+    /// 1-px spacing. An alerting row is filled (warn, critical on) or framed (critical off). With
+    /// <paramref name="bars"/> each row gets a gauge bar below it (rows with a known range only)
+    /// and the rows move further apart — for tiles with few rows, where the space is there.
     /// </summary>
     public static void DrawGrid(PixelSurface surface, IReadOnlyList<(string Label, MetricSnapshot? Metric)> rows,
-        bool blinkOn, int top = PixelSurface.Top)
+        bool blinkOn, int top = PixelSurface.Top, bool bars = false)
     {
         PixelPalette p = surface.Palette;
         for (int i = 0; i < rows.Count; i++)
         {
             (string label, MetricSnapshot? metric) = rows[i];
-            int y0 = top + (18 * i);
+            int y0 = top + ((bars ? BarGridPitch : GridPitch) * i);
             MetricState state = metric?.State ?? MetricState.Ok;
             bool fill = state != MetricState.Ok && (state == MetricState.Warn || blinkOn);
 
@@ -124,8 +140,15 @@ internal static class PageLayout
             surface.Text(TileDrawing.Fit(unit, labelRoom), TileDrawing.L + 1, y0 + 9, labelColor, shadow: !fill);
             surface.TextRight(value, TileDrawing.R - 1, y0 + 1, valueColor, scale, spacing, shadow: !fill);
 
-            if (i < rows.Count - 1 && state == MetricState.Ok)
+            if (bars)
+            {
+                if (metric is { HasRange: true })
+                    TileDrawing.Bar(surface, metric, y0 + GridBarOffset, GridBarHeight);
+            }
+            else if (i < rows.Count - 1 && state == MetricState.Ok)
+            {
                 surface.Fill(TileDrawing.L, y0 + 16, TileDrawing.W, 1, p.Track);
+            }
         }
     }
 
