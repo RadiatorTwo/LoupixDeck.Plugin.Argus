@@ -1,0 +1,265 @@
+using System.Text.RegularExpressions;
+using LoupixDeck.PluginSdk;
+
+namespace LoupixDeck.Plugin.Argus;
+
+/// <summary>
+/// Builds the <c>Argus.Sensor</c> part of the editor menu: sensors are sorted by component
+/// (CPU, GPU, Memory, Storage, Mainboard, Network, Other) and then by quantity (Temperature, Clock,
+/// Fan, …), and every entry gets a name that is unique within its submenu.
+///
+/// <para>Only the presentation is new. Each entry still stores <c>&lt;Type&gt;:&lt;Ordinal&gt;</c>,
+/// the sensor's position within its type in Argus report order, exactly as
+/// <see cref="Rendering.ArgusReadingBuilder"/> resolves it, so saved buttons keep loading.</para>
+/// </summary>
+internal static partial class SensorMenu
+{
+    private const string CommandName = "Argus.Sensor";
+
+    /// <summary>A quantity inside a component. <paramref name="Interleave"/> lists the entries by
+    /// ordinal first, so the percent and absolute reading of the same fan or memory sit next to
+    /// each other.</summary>
+    private sealed record Section(string Component, string Name, ArgusSensorType[] Types, bool Interleave = false);
+
+    private static readonly string[] ComponentOrder = ["CPU", "GPU", "Memory", "Storage", "Mainboard", "Network", "Other"];
+
+    private static readonly Section[] Sections =
+    [
+        new("CPU", "Temperature", [ArgusSensorType.CpuTemperature, ArgusSensorType.CpuTemperatureAdditional]),
+        new("CPU", "Clock",
+        [
+            ArgusSensorType.CpuFrequency, ArgusSensorType.CpuFrequencyMax, ArgusSensorType.CpuFrequencyMin,
+            ArgusSensorType.CpuFrequencyAvg, ArgusSensorType.CpuFrequencyFsb
+        ]),
+        new("CPU", "Multiplier",
+        [
+            ArgusSensorType.CpuMultiplier, ArgusSensorType.CpuMultiplierMax, ArgusSensorType.CpuMultiplierMin,
+            ArgusSensorType.CpuMultiplierAvg
+        ]),
+        new("CPU", "Load", [ArgusSensorType.CpuLoad]),
+        new("CPU", "Power", [ArgusSensorType.CpuPower]),
+
+        new("GPU", "Temperature", [ArgusSensorType.GpuTemperature]),
+        new("GPU", "Load", [ArgusSensorType.GpuLoad]),
+        new("GPU", "Clock", [ArgusSensorType.GpuCoreClk, ArgusSensorType.GpuMemoryClk, ArgusSensorType.GpuShaderClk]),
+        new("GPU", "Memory", [ArgusSensorType.GpuMemoryUsedPercent, ArgusSensorType.GpuMemoryUsedMb], Interleave: true),
+        new("GPU", "Fan", [ArgusSensorType.GpuFanSpeedPercent, ArgusSensorType.GpuFanSpeedRpm], Interleave: true),
+        new("GPU", "Power", [ArgusSensorType.GpuPower]),
+
+        new("Memory", "Memory", [ArgusSensorType.RamUsage]),
+
+        new("Storage", "Temperature", [ArgusSensorType.DiskTemperature]),
+        new("Storage", "Transfer rate", [ArgusSensorType.DiskTransferRate]),
+
+        new("Mainboard", "Temperature", [ArgusSensorType.Temperature, ArgusSensorType.SyntheticTemperature]),
+        new("Mainboard", "Fans", [ArgusSensorType.FanSpeedRpm, ArgusSensorType.FanControlValue], Interleave: true),
+
+        new("Network", "Network", [ArgusSensorType.NetworkSpeed])
+    ];
+
+    /// <summary>Words that repeat the component and are dropped from Argus's labels
+    /// ("CPU Load Total" under CPU → "Load Total").</summary>
+    private static readonly Dictionary<string, string[]> ComponentWords = new()
+    {
+        ["CPU"] = ["CPU"],
+        ["GPU"] = ["GPU"],
+        ["Memory"] = ["RAM"]
+    };
+
+    private sealed record Entry(ArgusSensor Sensor, int Ordinal, int TypeRank, string BaseName);
+
+    public static List<MenuNode> Build(IReadOnlyList<ArgusSensor> sensors)
+    {
+        // The ordinal is the position within the type over the full list — the same index the
+        // reading builder and the telemetry sampler use. Compute it before any filtering.
+        Dictionary<ArgusSensorType, int> counters = [];
+        List<(ArgusSensor Sensor, int Ordinal)> indexed = [];
+        foreach (ArgusSensor sensor in sensors)
+        {
+            counters.TryGetValue(sensor.Type, out int ordinal);
+            counters[sensor.Type] = ordinal + 1;
+            indexed.Add((sensor, ordinal));
+        }
+
+        Dictionary<Section, List<Entry>> bySection = [];
+        Dictionary<ArgusSensorType, Section> otherSections = [];
+        foreach ((ArgusSensor sensor, int ordinal) in indexed)
+        {
+            // GpuName carries the card's name as its label and no measurable value.
+            if (sensor.Type is ArgusSensorType.Invalid or ArgusSensorType.GpuName)
+                continue;
+
+            // Types without a place (Battery, future additions) get one section each under Other.
+            Section section = SectionFor(sensor.Type)
+                              ?? (otherSections.TryGetValue(sensor.Type, out Section? other)
+                                  ? other
+                                  : otherSections[sensor.Type] = new Section("Other",
+                                      Rendering.ArgusReadingBuilder.HeaderFor(sensor.Type), [sensor.Type]));
+            if (!bySection.TryGetValue(section, out List<Entry>? entries))
+                bySection[section] = entries = [];
+
+            entries.Add(new Entry(sensor, ordinal, Array.IndexOf(section.Types, sensor.Type),
+                BaseName(sensor, ordinal, section)));
+        }
+
+        List<MenuNode> components = [];
+        foreach (string component in ComponentOrder)
+        {
+            List<MenuNode> children = [];
+            IEnumerable<KeyValuePair<Section, List<Entry>>> sections = bySection
+                .Where(pair => pair.Key.Component == component)
+                .OrderBy(pair => SectionRank(pair.Key))
+                .ThenBy(pair => pair.Key.Name, StringComparer.OrdinalIgnoreCase);
+
+            List<KeyValuePair<Section, List<Entry>>> sectionList = sections.ToList();
+            foreach ((Section section, List<Entry> entries) in sectionList)
+            {
+                List<MenuNode> nodes = SectionNodes(section, entries);
+
+                if (sectionList.Count == 1)
+                    children.AddRange(nodes);  // the only quantity of the component: no extra level
+                else if (nodes.Count == 1)
+                    children.Add(Rename(nodes[0], section.Name));  // a submenu with one entry is noise
+                else
+                    children.Add(new MenuNode { Name = section.Name, Children = nodes });
+            }
+
+            if (children.Count > 0)
+                components.Add(new MenuNode { Name = component, Children = children });
+        }
+
+        return components;
+    }
+
+    private static Section? SectionFor(ArgusSensorType type) =>
+        Sections.FirstOrDefault(section => Array.IndexOf(section.Types, type) >= 0);
+
+    private static MenuNode Rename(MenuNode node, string name) => new()
+    {
+        Name = name,
+        CommandName = node.CommandName,
+        Parameters = node.Parameters
+    };
+
+    private static int SectionRank(Section section)
+    {
+        int rank = Array.IndexOf(Sections, section);
+        return rank >= 0 ? rank : int.MaxValue;
+    }
+
+    private static List<MenuNode> SectionNodes(Section section, List<Entry> entries)
+    {
+        List<Entry> ordered = section.Interleave
+            ? entries.OrderBy(e => e.Ordinal).ThenBy(e => e.TypeRank).ToList()
+            : entries.OrderBy(e => e.TypeRank).ThenBy(e => e.Ordinal).ToList();
+
+        // Name the unit only where it tells entries apart: "Used (%)" beside "Used (MB)",
+        // "Realtek … (up)" beside "Realtek … (down)", but plain "Core 0" among °C-only readings.
+        bool showUnit = ordered.Select(e => UnitTag(e.Sensor.Unit)).Where(u => u.Length > 0).Distinct().Count() > 1;
+
+        List<string> names = ordered.Select(e => Compose(e.BaseName, showUnit ? UnitTag(e.Sensor.Unit) : "")).ToList();
+
+        // Readings Argus labels identically (both GPU fans are "GPU Fan Speed") get a running
+        // number per type: "Fan 1 (%)", "Fan 2 (%)".
+        foreach (IGrouping<(string, ArgusSensorType), int> clash in Enumerable.Range(0, ordered.Count)
+                     .GroupBy(i => (names[i], ordered[i].Sensor.Type))
+                     .Where(g => g.Count() > 1))
+        {
+            int number = 1;
+            foreach (int i in clash)
+                names[i] = Compose($"{ordered[i].BaseName} {number++}", showUnit ? UnitTag(ordered[i].Sensor.Unit) : "");
+        }
+
+        // Last resort for anything still ambiguous across types: the parameter's ordinal.
+        foreach (IGrouping<string, int> clash in Enumerable.Range(0, ordered.Count)
+                     .GroupBy(i => names[i], StringComparer.OrdinalIgnoreCase)
+                     .Where(g => g.Count() > 1))
+        {
+            foreach (int i in clash)
+                names[i] = $"{names[i]} #{ordered[i].Ordinal}";
+        }
+
+        List<MenuNode> nodes = [];
+        for (int i = 0; i < ordered.Count; i++)
+        {
+            Entry entry = ordered[i];
+            nodes.Add(new MenuNode
+            {
+                Name = names[i],
+                CommandName = CommandName,
+                Parameters = new Dictionary<string, string> { { "Sensor", $"{entry.Sensor.Type}:{entry.Ordinal}" } }
+            });
+        }
+
+        return nodes;
+    }
+
+    private static string Compose(string name, string unitTag) =>
+        unitTag.Length == 0 ? name : $"{name} ({unitTag})";
+
+    /// <summary>
+    /// The entry name before units and numbering: Argus's label with the component and quantity
+    /// words removed, or a fixed name where the label says nothing useful.
+    /// </summary>
+    private static string BaseName(ArgusSensor sensor, int ordinal, Section section)
+    {
+        switch (sensor.Type)
+        {
+            case ArgusSensorType.CpuFrequencyMax or ArgusSensorType.CpuMultiplierMax:
+                return $"{section.Name} max";
+            case ArgusSensorType.CpuFrequencyMin or ArgusSensorType.CpuMultiplierMin:
+                return $"{section.Name} min";
+            case ArgusSensorType.CpuFrequencyAvg or ArgusSensorType.CpuMultiplierAvg:
+                return $"{section.Name} avg";
+            case ArgusSensorType.CpuFrequencyFsb:
+                return "FSB";
+            case ArgusSensorType.GpuFanSpeedPercent or ArgusSensorType.GpuFanSpeedRpm:
+                return "Fan";
+        }
+
+        string label = sensor.Label.Trim();
+
+        // Argus appends the sensor index to some labels ("CPU Leistung (Gesamt)0").
+        label = TrailingIndexAfterParenthesis().Replace(label, ")");
+
+        if (sensor.Type == ArgusSensorType.CpuFrequency && label.EndsWith(" Frequency", StringComparison.OrdinalIgnoreCase))
+            label = label[..^" Frequency".Length];
+
+        if (ComponentWords.TryGetValue(section.Component, out string[]? words))
+        {
+            foreach (string word in words)
+                label = Regex.Replace(label, $@"\b{Regex.Escape(word)}\b", "", RegexOptions.IgnoreCase);
+        }
+
+        label = Whitespace().Replace(label, " ").Trim();
+
+        // "Load Total" under Load → "Total"; "Memory Used" under Memory → "Used".
+        if (label.StartsWith(section.Name + " ", StringComparison.OrdinalIgnoreCase))
+            label = label[(section.Name.Length + 1)..];
+
+        if (label.Length == 0)
+            return string.IsNullOrWhiteSpace(sensor.Label) ? $"#{ordinal}" : section.Name;
+
+        return label;
+    }
+
+    /// <summary>The part of a unit that tells readings apart: the direction in
+    /// "Bytes/sec (up)", otherwise the unit itself.</summary>
+    private static string UnitTag(string? unit)
+    {
+        if (string.IsNullOrWhiteSpace(unit))
+            return string.Empty;
+
+        Match match = ParenthesizedWord().Match(unit);
+        return match.Success ? match.Groups[1].Value : unit.Trim();
+    }
+
+    [GeneratedRegex(@"\)\d+$")]
+    private static partial Regex TrailingIndexAfterParenthesis();
+
+    [GeneratedRegex(@"\s+")]
+    private static partial Regex Whitespace();
+
+    [GeneratedRegex(@"\((\w+)\)")]
+    private static partial Regex ParenthesizedWord();
+}

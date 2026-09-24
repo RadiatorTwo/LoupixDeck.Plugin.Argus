@@ -91,34 +91,9 @@ public sealed class ArgusPlugin : LoupixPlugin, IMenuContributor, IPluginSetting
         {
             groupChildren.Add(new MenuNode { Name = "Pages", Children = PageNodes() });
 
-            // Per-type single-sensor readings (one selectable command each). Combine several on a
-            // button via its command sequence to get a multi-row tile.
-            foreach (IGrouping<ArgusSensorType, ArgusSensor> typeGroup in sensors
-                         .Where(s => s.Type != ArgusSensorType.Invalid)
-                         .GroupBy(s => s.Type)
-                         .OrderBy(g => ArgusReadingBuilder.HeaderFor(g.Key), StringComparer.OrdinalIgnoreCase))
-            {
-                // The parameter uses the sensor's ordinal position within its type (Argus report
-                // order), because per-instance sensors (e.g. CPU cores) do not carry a distinct
-                // SensorIndex — keep this order in lock-step with ArgusReadingBuilder's lookup.
-                List<MenuNode> readings = [];
-                int ordinal = 0;
-                foreach (ArgusSensor sensor in typeGroup)
-                {
-                    string label = string.IsNullOrWhiteSpace(sensor.Label)
-                        ? $"#{ordinal}"
-                        : sensor.Label;
-
-                    readings.Add(SensorNode(label, $"{sensor.Type}:{ordinal}"));
-                    ordinal++;
-                }
-
-                groupChildren.Add(new MenuNode
-                {
-                    Name = ArgusReadingBuilder.HeaderFor(typeGroup.Key),
-                    Children = readings
-                });
-            }
+            // One entry per sensor (one command each), sorted by component and quantity. Combine
+            // several on a button via its command sequence to get a multi-row tile.
+            groupChildren.AddRange(SensorMenu.Build(sensors));
         }
 
         IReadOnlyList<MenuNode> result = [new MenuNode { Name = "Argus Monitor", Children = groupChildren }];
@@ -142,13 +117,6 @@ public sealed class ArgusPlugin : LoupixPlugin, IMenuContributor, IPluginSetting
         Name = name,
         CommandName = ArgusPagesCommand.CommandName,
         Parameters = new Dictionary<string, string> { { "Pages", pages } }
-    };
-
-    private static MenuNode SensorNode(string name, string sensorParameter) => new()
-    {
-        Name = name,
-        CommandName = "Argus.Sensor",
-        Parameters = new Dictionary<string, string> { { "Sensor", sensorParameter } }
     };
 
     // ───────── IPluginSettingsPage — status only ─────────
