@@ -2,7 +2,7 @@
   "id": "argus",
   "name": "Argus Monitor",
   "version": "1.0.0",
-  "sdkVersion": "1.14",
+  "sdkVersion": "1.26",
   "entryAssembly": "LoupixDeck.Plugin.Argus.dll",
   "platform": "Windows",
   "author": "RadiatorTwo",
