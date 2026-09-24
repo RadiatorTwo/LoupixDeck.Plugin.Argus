@@ -1,17 +1,20 @@
 using LoupixDeck.Plugin.Argus.Rendering;
+using LoupixDeck.Plugin.Argus.Rendering.Pixel;
+using LoupixDeck.Plugin.Argus.Rendering.Tiles;
+using LoupixDeck.Plugin.Argus.Telemetry;
 using LoupixDeck.PluginSdk;
 
 namespace LoupixDeck.Plugin.Argus;
 
 /// <summary>
-/// Display command that renders Argus Monitor readings onto a touch button (90×90) via the SDK
-/// image-rendering API. One command carries one sensor; a button's command sequence composes the
-/// tile dynamically — the first (rendering) command reads <see cref="CommandContext.SequenceCommands"/>
-/// and draws one row per sibling command (up to four). The command name and the "Sensor" parameter
-/// are unchanged, and legacy packed parameters (single/double/memory/multi) still render, so buttons
-/// saved before the rework keep working.
+/// Display command that renders Argus Monitor readings onto a touch button as pixel tiles (5×7
+/// bitmap font, no anti-aliasing). One command carries one sensor; a button's command sequence
+/// composes the tile dynamically — the first (rendering) command reads
+/// <see cref="CommandContext.SequenceCommands"/> and draws one row per sibling command (up to four).
+/// The command name and the "Sensor" parameter are unchanged, and legacy packed parameters
+/// (single/double/memory/multi) still render, so buttons saved before the rework keep working.
 /// </summary>
-internal sealed class ArgusSensorCommand(ArgusMonitorService argus) : IDisplayImageCommand
+internal sealed class ArgusSensorCommand(TelemetrySampler telemetry) : IAnimatedDisplayCommand, IDisplayImageCommand
 {
     public CommandDescriptor Descriptor { get; } = new()
     {
@@ -28,25 +31,32 @@ internal sealed class ArgusSensorCommand(ArgusMonitorService argus) : IDisplayIm
 
     public ButtonTargets SupportedTargets => ButtonTargets.TouchButton;
 
-    public TimeSpan UpdateInterval => TimeSpan.FromSeconds(2);
+    public int TargetFps => PixelTile.TargetFps;
+
+    public TimeSpan UpdateInterval => TimeSpan.FromMilliseconds(500);
+
+    public AnimationFrameInfo RenderAnimatedFrame(CommandContext ctx, IRenderCanvas canvas, AnimationFrameContext frame) =>
+        PixelTile.Render(ctx, canvas, surface => Draw(ctx, surface, TileDrawing.BlinkOn(frame.Elapsed)));
 
     public bool RenderImage(CommandContext ctx, IRenderCanvas canvas)
     {
-        bool transparent = ctx.Host.Settings.Get(ArgusPlugin.TransparentBackgroundKey, false);
+        PixelTile.Render(ctx, canvas, surface => Draw(ctx, surface, PixelTile.WallClockBlink()));
+        return true;
+    }
 
-        List<SensorReading> readings = [];
+    private void Draw(CommandContext ctx, PixelSurface surface, bool blinkOn)
+    {
+        TelemetryFrame frame = telemetry.Frame;
+
+        List<SensorRow> rows = [];
         foreach (string? sensorRef in SensorReferences(ctx))
         {
-            readings.AddRange(ArgusReadingBuilder.Build(sensorRef, argus.Sensors, argus.IsAvailable));
-            if (readings.Count >= SensorRenderer.MaxReadings)
+            rows.AddRange(ArgusReadingBuilder.Build(sensorRef, frame.Sensors));
+            if (rows.Count >= SensorTileLayout.MaxRows)
                 break;
         }
 
-        if (readings.Count > SensorRenderer.MaxReadings)
-            readings.RemoveRange(SensorRenderer.MaxReadings, readings.Count - SensorRenderer.MaxReadings);
-
-        SensorRenderer.Render(canvas, readings, transparent ? SensorTheme.Transparent : SensorTheme.Default);
-        return true;
+        SensorTileLayout.Draw(surface, rows.Take(SensorTileLayout.MaxRows).ToList(), frame, blinkOn);
     }
 
     /// <summary>
