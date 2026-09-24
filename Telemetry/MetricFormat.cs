@@ -46,10 +46,19 @@ internal static class MetricFormatter
     }
 
     /// <summary>Converts a transfer rate to bytes per second from Argus' unit string ("Byte/s",
-    /// "KB/s", "Mbit/s" …). Null when the unit is not a rate.</summary>
+    /// "KB/s", "Mbit/s", "Bytes/sec (up)" …). Null when the unit is not a rate.</summary>
     public static double? ToBytesPerSecond(double value, string? unit)
     {
-        string u = (unit ?? string.Empty).Trim().ToLowerInvariant().Replace(" ", string.Empty);
+        string u = (unit ?? string.Empty).ToLowerInvariant();
+
+        // Network rates carry their direction: "Bytes/sec (up)".
+        int parenthesis = u.IndexOf('(');
+        if (parenthesis >= 0)
+            u = u[..parenthesis];
+
+        u = u.Replace(" ", string.Empty);
+        if (u.EndsWith("/sec", StringComparison.Ordinal))
+            u = u[..^2];
         if (!u.EndsWith("/s", StringComparison.Ordinal))
             return null;
 
