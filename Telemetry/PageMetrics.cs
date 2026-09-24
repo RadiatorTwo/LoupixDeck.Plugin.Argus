@@ -76,24 +76,24 @@ internal static class PageMetrics
             s => RamMegabytes(s) is { } ram ? ram.Total - ram.Used : null,
             _ => new MetricInfo(MetricFormat.Megabytes, 0, 0)),
 
-        // Argus reports NetworkSpeed as receive then send; not verified on hardware with network
-        // monitoring enabled.
+        // Argus names the direction in the unit ("Bytes/sec (up)"); it reports send before
+        // receive, so position alone would swap them. With several adapters the first one counts.
         new(NetDown,
-            s => Rate(s, ArgusSensorType.NetworkSpeed, 0),
+            s => Directed(s, ArgusSensorType.NetworkSpeed, "(down)", "(up)", 0),
             _ => new MetricInfo(MetricFormat.BytesPerSecond, 0, 0)),
         new(NetUp,
-            s => Rate(s, ArgusSensorType.NetworkSpeed, 1),
+            s => Directed(s, ArgusSensorType.NetworkSpeed, "(up)", "(down)", 1),
             _ => new MetricInfo(MetricFormat.BytesPerSecond, 0, 0)),
 
         new(DiskTemp,
             s => Max(s, ArgusSensorType.DiskTemperature),
             _ => new MetricInfo(MetricFormat.Temperature, 20, 80, ThresholdKind.StorageTemperature)),
-        // DiskTransferRate #0 is read, #1 write.
+        // Argus labels the direction ("Data transfer rate (read)"); #0 is read, #1 write.
         new(DiskRead,
-            s => Rate(s, ArgusSensorType.DiskTransferRate, 0),
+            s => Directed(s, ArgusSensorType.DiskTransferRate, "(read)", "(write)", 0),
             _ => new MetricInfo(MetricFormat.BytesPerSecond, 0, 0)),
         new(DiskWrite,
-            s => Rate(s, ArgusSensorType.DiskTransferRate, 1),
+            s => Directed(s, ArgusSensorType.DiskTransferRate, "(write)", "(read)", 1),
             _ => new MetricInfo(MetricFormat.BytesPerSecond, 0, 0))
     ];
 
@@ -135,6 +135,33 @@ internal static class PageMetrics
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// The first rate of <paramref name="type"/> whose unit or label names
+    /// <paramref name="direction"/>; the one at <paramref name="fallbackOrdinal"/> when no sensor
+    /// of the type names either <paramref name="direction"/> or <paramref name="opposite"/>.
+    /// </summary>
+    private static double? Directed(IReadOnlyList<ArgusSensor> sensors, ArgusSensorType type, string direction,
+        string opposite, int fallbackOrdinal)
+    {
+        bool anyDirection = false;
+        foreach (ArgusSensor sensor in sensors)
+        {
+            if (sensor.Type != type)
+                continue;
+
+            if (Names(sensor, direction))
+                return SensorMetrics.NativeValue(sensor);
+
+            anyDirection |= Names(sensor, opposite);
+        }
+
+        return anyDirection ? null : Rate(sensors, type, fallbackOrdinal);
+
+        static bool Names(ArgusSensor sensor, string direction) =>
+            (sensor.Unit?.Contains(direction, StringComparison.OrdinalIgnoreCase) ?? false)
+            || (sensor.Label?.Contains(direction, StringComparison.OrdinalIgnoreCase) ?? false);
     }
 
     private static double? FirstWithUnit(IReadOnlyList<ArgusSensor> sensors, ArgusSensorType type, bool percent)
