@@ -70,6 +70,43 @@ internal static partial class SensorMenu
 
     public static List<MenuNode> Build(IReadOnlyList<ArgusSensor> sensors)
     {
+        List<SensorName> named = Name(sensors);
+
+        List<MenuNode> components = [];
+        foreach (string component in ComponentOrder)
+        {
+            List<SensorName> ofComponent = named.Where(n => n.Component == component).ToList();
+            List<IGrouping<string, SensorName>> sections = ofComponent.GroupBy(n => n.Section).ToList();
+
+            List<MenuNode> children = [];
+            foreach (IGrouping<string, SensorName> section in sections)
+            {
+                List<MenuNode> nodes = section.Select(n => new MenuNode
+                {
+                    Name = n.MenuName,
+                    CommandName = CommandName,
+                    Parameters = new Dictionary<string, string> { { "Sensor", $"{n.Sensor.Type}:{n.Ordinal}" } }
+                }).ToList();
+
+                if (sections.Count == 1 || nodes.Count == 1)
+                    children.AddRange(nodes);  // no extra level for a lone quantity or a lone entry
+                else
+                    children.Add(new MenuNode { Name = section.Key, Children = nodes });
+            }
+
+            if (children.Count > 0)
+                components.Add(new MenuNode { Name = component, Children = children });
+        }
+
+        return components;
+    }
+
+    /// <summary>
+    /// Names every sensor the menu offers, in menu order. Tile labels are derived from these names
+    /// so the menu and the tile call a sensor the same thing.
+    /// </summary>
+    public static List<SensorName> Name(IReadOnlyList<ArgusSensor> sensors)
+    {
         // The ordinal is the position within the type over the full list — the same index the
         // reading builder and the telemetry sampler use. Compute it before any filtering.
         Dictionary<ArgusSensorType, int> counters = [];
@@ -102,44 +139,33 @@ internal static partial class SensorMenu
                 BaseName(sensor, ordinal, section)));
         }
 
-        List<MenuNode> components = [];
+        List<SensorName> named = [];
         foreach (string component in ComponentOrder)
         {
-            List<MenuNode> children = [];
-            IEnumerable<KeyValuePair<Section, List<Entry>>> sections = bySection
+            List<KeyValuePair<Section, List<Entry>>> sections = bySection
                 .Where(pair => pair.Key.Component == component)
                 .OrderBy(pair => SectionRank(pair.Key))
-                .ThenBy(pair => pair.Key.Name, StringComparer.OrdinalIgnoreCase);
+                .ThenBy(pair => pair.Key.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
 
-            List<KeyValuePair<Section, List<Entry>>> sectionList = sections.ToList();
-            foreach ((Section section, List<Entry> entries) in sectionList)
+            foreach ((Section section, List<Entry> entries) in sections)
             {
-                List<MenuNode> nodes = SectionNodes(section, entries);
+                List<SensorName> names = SectionNames(section, entries);
 
-                if (sectionList.Count == 1)
-                    children.AddRange(nodes);  // the only quantity of the component: no extra level
-                else if (nodes.Count == 1)
-                    children.Add(Rename(nodes[0], section.Name));  // a submenu with one entry is noise
-                else
-                    children.Add(new MenuNode { Name = section.Name, Children = nodes });
+                // A submenu with one entry is noise: the entry takes the submenu's place and name
+                // (unless it is the component's only quantity, which gets no submenu either).
+                if (sections.Count > 1 && names.Count == 1)
+                    names[0] = names[0] with { MenuName = section.Name };
+
+                named.AddRange(names);
             }
-
-            if (children.Count > 0)
-                components.Add(new MenuNode { Name = component, Children = children });
         }
 
-        return components;
+        return named;
     }
 
     private static Section? SectionFor(ArgusSensorType type) =>
         Sections.FirstOrDefault(section => Array.IndexOf(section.Types, type) >= 0);
-
-    private static MenuNode Rename(MenuNode node, string name) => new()
-    {
-        Name = name,
-        CommandName = node.CommandName,
-        Parameters = node.Parameters
-    };
 
     private static int SectionRank(Section section)
     {
@@ -147,7 +173,7 @@ internal static partial class SensorMenu
         return rank >= 0 ? rank : int.MaxValue;
     }
 
-    private static List<MenuNode> SectionNodes(Section section, List<Entry> entries)
+    private static List<SensorName> SectionNames(Section section, List<Entry> entries)
     {
         List<Entry> ordered = section.Interleave
             ? entries.OrderBy(e => e.Ordinal).ThenBy(e => e.TypeRank).ToList()
@@ -157,18 +183,21 @@ internal static partial class SensorMenu
         // "Realtek … (up)" beside "Realtek … (down)", but plain "Core 0" among °C-only readings.
         bool showUnit = ordered.Select(e => UnitTag(e.Sensor.Unit)).Where(u => u.Length > 0).Distinct().Count() > 1;
 
-        List<string> names = ordered.Select(e => Compose(e.BaseName, showUnit ? UnitTag(e.Sensor.Unit) : "")).ToList();
+        List<string> tags = ordered.Select(e => showUnit ? UnitTag(e.Sensor.Unit) : "").ToList();
+        List<string> baseNames = ordered.Select(e => e.BaseName).ToList();
 
         // Readings Argus labels identically (both GPU fans are "GPU Fan Speed") get a running
         // number per type: "Fan 1 (%)", "Fan 2 (%)".
         foreach (IGrouping<(string, ArgusSensorType), int> clash in Enumerable.Range(0, ordered.Count)
-                     .GroupBy(i => (names[i], ordered[i].Sensor.Type))
+                     .GroupBy(i => (Compose(baseNames[i], tags[i]), ordered[i].Sensor.Type))
                      .Where(g => g.Count() > 1))
         {
             int number = 1;
             foreach (int i in clash)
-                names[i] = Compose($"{ordered[i].BaseName} {number++}", showUnit ? UnitTag(ordered[i].Sensor.Unit) : "");
+                baseNames[i] = $"{ordered[i].BaseName} {number++}";
         }
+
+        List<string> names = Enumerable.Range(0, ordered.Count).Select(i => Compose(baseNames[i], tags[i])).ToList();
 
         // Last resort for anything still ambiguous across types: the parameter's ordinal.
         foreach (IGrouping<string, int> clash in Enumerable.Range(0, ordered.Count)
@@ -176,22 +205,16 @@ internal static partial class SensorMenu
                      .Where(g => g.Count() > 1))
         {
             foreach (int i in clash)
-                names[i] = $"{names[i]} #{ordered[i].Ordinal}";
-        }
-
-        List<MenuNode> nodes = [];
-        for (int i = 0; i < ordered.Count; i++)
-        {
-            Entry entry = ordered[i];
-            nodes.Add(new MenuNode
             {
-                Name = names[i],
-                CommandName = CommandName,
-                Parameters = new Dictionary<string, string> { { "Sensor", $"{entry.Sensor.Type}:{entry.Ordinal}" } }
-            });
+                names[i] = $"{names[i]} #{ordered[i].Ordinal}";
+                baseNames[i] = $"{baseNames[i]} #{ordered[i].Ordinal}";
+            }
         }
 
-        return nodes;
+        return Enumerable.Range(0, ordered.Count)
+            .Select(i => new SensorName(ordered[i].Sensor, ordered[i].Ordinal, section.Component, section.Name,
+                baseNames[i], names[i]))
+            .ToList();
     }
 
     private static string Compose(string name, string unitTag) =>
@@ -263,3 +286,11 @@ internal static partial class SensorMenu
     [GeneratedRegex(@"\((\w+)\)")]
     private static partial Regex ParenthesizedWord();
 }
+
+/// <summary>
+/// How the menu names a sensor. <paramref name="Name"/> is the entry name without the unit that
+/// sets it apart from its neighbours ("Fan 1"); <paramref name="MenuName"/> is what the menu shows
+/// ("Fan 1 (%)", or the quantity's name when the entry replaces a one-entry submenu).
+/// </summary>
+internal sealed record SensorName(ArgusSensor Sensor, int Ordinal, string Component, string Section, string Name,
+    string MenuName);
