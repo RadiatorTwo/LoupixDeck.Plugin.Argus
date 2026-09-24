@@ -32,7 +32,7 @@ public sealed class ArgusPlugin : LoupixPlugin, IMenuContributor, IPluginSetting
     {
         Id = "argus",
         Name = "Argus Monitor",
-        Version = new Version(1, 0, 0),
+        Version = new Version(1, 1, 0),
         SdkVersion = new Version(1, 26, 0),
         Author = "RadiatorTwo",
         Description = "Display Argus Monitor sensor readings on touch buttons; chain several to compose a multi-sensor tile."
