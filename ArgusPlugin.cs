@@ -150,12 +150,26 @@ public sealed class ArgusPlugin : LoupixPlugin, IMenuContributor, IPluginSetting
         {
             Label = "Show Status",
             Invoke = () => Task.FromResult(_service.IsAvailable
-                ? $"Reading — {_service.Sensors.Count} sensor(s)."
-                : "Not running — is Argus Monitor open?")
+                ? string.Format(Tr("Reading — {0} sensor(s)."), _service.Sensors.Count)
+                : Tr("Not running — is Argus Monitor open?"))
         }
     ];
 
     private IReadOnlyList<PluginSettingAction>? _settingsActions;
+
+    /// <summary>Translates runtime text through the plugin's strings files; hosts before SDK 1.24
+    /// have no <see cref="IPluginHost.Tr"/> and get the English text.</summary>
+    private string Tr(string english)
+    {
+        try
+        {
+            return _host?.Tr(english) ?? english;
+        }
+        catch (MissingMethodException)
+        {
+            return english;
+        }
+    }
 
     public void OnSettingsSaved()
     {
