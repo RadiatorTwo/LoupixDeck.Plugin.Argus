@@ -35,8 +35,20 @@ public sealed class ArgusPlugin : LoupixPlugin, IMenuContributor, IPluginSetting
         Version = new Version(1, 1, 0),
         SdkVersion = new Version(1, 26, 0),
         Author = "RadiatorTwo",
-        Description = "Display Argus Monitor sensor readings on touch buttons; chain several to compose a multi-sensor tile."
+        Description = "Display Argus Monitor sensor readings on touch buttons; chain several to compose a multi-sensor tile.",
+        Icon = LoadIcon()
     };
+
+    /// <summary>The plugin icon (icon.png, embedded). Missing data only costs the icon.</summary>
+    private static byte[]? LoadIcon()
+    {
+        using Stream? stream = typeof(ArgusPlugin).Assembly.GetManifestResourceStream("LoupixDeck.Plugin.Argus.icon.png");
+        if (stream == null) return null;
+
+        using MemoryStream buffer = new();
+        stream.CopyTo(buffer);
+        return buffer.ToArray();
+    }
 
     public override void Initialize(IPluginHost host)
     {

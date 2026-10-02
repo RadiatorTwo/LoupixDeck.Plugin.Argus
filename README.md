@@ -25,6 +25,12 @@ Sensors are sampled once a second; clock and load readings are smoothed.
 Settings: transparent background, and the CPU's TjMax (CPU temperature turns amber at
 TjMax − 15 °C and red at TjMax − 5 °C).
 
+## Credits
+
+The plugin icon is based on the lizard from [Fluent Emoji](https://github.com/microsoft/fluentui-emoji)
+by Microsoft (MIT License, Copyright (c) Microsoft Corporation), recoloured and reshaded. The plugin
+is not affiliated with or endorsed by Argus Monitor.
+
 ## Build & deploy
 
 ```bash
