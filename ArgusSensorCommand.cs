@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using LoupixDeck.Plugin.Argus.Rendering;
 using LoupixDeck.Plugin.Argus.Rendering.Pixel;
 using LoupixDeck.Plugin.Argus.Rendering.Tiles;
@@ -16,6 +17,9 @@ namespace LoupixDeck.Plugin.Argus;
 /// </summary>
 internal sealed class ArgusSensorCommand(TelemetrySampler telemetry) : IAnimatedDisplayCommand, IDisplayImageCommand
 {
+    // Sensor reference → its rows for the snapshot they were built from.
+    private readonly ConcurrentDictionary<string, RowsOfSnapshot> _rows = new(StringComparer.Ordinal);
+
     public CommandDescriptor Descriptor { get; } = new()
     {
         CommandName = "Argus.Sensor",
@@ -50,16 +54,34 @@ internal sealed class ArgusSensorCommand(TelemetrySampler telemetry) : IAnimated
     {
         TelemetryFrame frame = telemetry.Frame;
 
-        List<SensorRow> rows = [];
+        List<SensorRow> rows = new(SensorTileLayout.MaxRows);
         foreach (string? sensorRef in SensorReferences(ctx))
         {
-            rows.AddRange(ArgusReadingBuilder.Build(sensorRef, frame.Sensors));
-            if (rows.Count >= SensorTileLayout.MaxRows)
+            IReadOnlyList<SensorRow> refRows = Rows(sensorRef, frame.Sensors);
+            for (int i = 0; i < refRows.Count && rows.Count < SensorTileLayout.MaxRows; i++)
+                rows.Add(refRows[i]);
+
+            if (rows.Count == SensorTileLayout.MaxRows)
                 break;
         }
 
-        SensorTileLayout.Draw(surface, rows.Take(SensorTileLayout.MaxRows).ToList(), frame, blinkOn);
+        SensorTileLayout.Draw(surface, rows, frame, blinkOn);
     }
+
+    /// <summary>The rows of one sensor reference. They depend only on the reference and the sensor
+    /// snapshot, so they are built once per snapshot instead of on every frame.</summary>
+    private IReadOnlyList<SensorRow> Rows(string? reference, IReadOnlyList<ArgusSensor> sensors)
+    {
+        string key = reference ?? string.Empty;
+        if (_rows.TryGetValue(key, out RowsOfSnapshot? cached) && ReferenceEquals(cached.Sensors, sensors))
+            return cached.Rows;
+
+        IReadOnlyList<SensorRow> rows = ArgusReadingBuilder.Build(reference, sensors);
+        _rows[key] = new RowsOfSnapshot(sensors, rows);
+        return rows;
+    }
+
+    private sealed record RowsOfSnapshot(IReadOnlyList<ArgusSensor> Sensors, IReadOnlyList<SensorRow> Rows);
 
     /// <summary>
     /// The sensor references to render, in order. On a multi-command button the whole sequence is
