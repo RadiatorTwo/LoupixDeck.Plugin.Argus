@@ -29,7 +29,6 @@ public sealed class ArgusMonitorService : IDisposable
 {
     private const string MappingName = "Global\\ARGUSMONITOR_DATA_INTERFACE";
     private const string MutexName = "Global\\ARGUSMONITOR_DATA_INTERFACE_MUTEX";
-    private const long MappingSize = 1024 * 1024;
 
     private const int SensorEntrySize = 212;
     private const int MaxSensorCount = 512;
@@ -133,7 +132,8 @@ public sealed class ArgusMonitorService : IDisposable
         try
         {
             _mmf = MemoryMappedFile.OpenExisting(MappingName, MemoryMappedFileRights.Read);
-            _accessor = _mmf.CreateViewAccessor(0, MappingSize, MemoryMappedFileAccess.Read);
+            // Length 0 maps the entire section, whatever size Argus created it with.
+            _accessor = _mmf.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read);
             // The mutex may not yet exist if Argus is mid-startup; treat that as not-available.
             _mutex = Mutex.OpenExisting(MutexName);
             return true;
@@ -177,15 +177,20 @@ public sealed class ArgusMonitorService : IDisposable
                 if (basePtr == null)
                     return false;
 
-                var view = new ReadOnlySpan<byte>(basePtr, (int)MappingSize);
+                // Every read below stays inside the mapped section.
+                var capacity = (int)Math.Min(_accessor.Capacity, int.MaxValue);
+                if (capacity < OffsetSensorData)
+                    return false;
+
+                var view = new ReadOnlySpan<byte>(basePtr, capacity);
 
                 var cycleCounter = BinaryPrimitives.ReadUInt32LittleEndian(view.Slice(OffsetCycleCounter, 4));
                 if (cycleCounter == _lastCycleCounter)
                     return false;
 
                 var totalSensorCount = BinaryPrimitives.ReadUInt32LittleEndian(view.Slice(OffsetTotalSensorCount, 4));
-                if (totalSensorCount > MaxSensorCount)
-                    totalSensorCount = MaxSensorCount;
+                var fitCount = (uint)((capacity - OffsetSensorData) / SensorEntrySize);
+                totalSensorCount = Math.Min(totalSensorCount, Math.Min(MaxSensorCount, fitCount));
 
                 var list = new List<ArgusSensor>((int)totalSensorCount);
                 for (var i = 0u; i < totalSensorCount; i++)
