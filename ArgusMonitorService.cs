@@ -55,6 +55,9 @@ public sealed class ArgusMonitorService : IDisposable
     private uint? _lastCycleCounter;
     private long _lastChangeTicks;
 
+    // Sensor entries copied out of the section, so parsing happens after the mutex is released.
+    private readonly byte[] _buffer = new byte[MaxSensorCount * SensorEntrySize];
+
     private volatile IReadOnlyList<ArgusSensor> _sensors = Array.Empty<ArgusSensor>();
 
     public IReadOnlyList<ArgusSensor> Sensors => _sensors;
@@ -156,9 +159,41 @@ public sealed class ArgusMonitorService : IDisposable
         _sensors = Array.Empty<ArgusSensor>();
     }
 
-    private unsafe bool TrySnapshot(out IReadOnlyList<ArgusSensor>? sensors)
+    private bool TrySnapshot(out IReadOnlyList<ArgusSensor>? sensors)
     {
         sensors = null;
+
+        if (!TryCopySensorData(out var count))
+            return false;
+
+        var list = new List<ArgusSensor>(count);
+        for (var i = 0; i < count; i++)
+        {
+            ReadOnlySpan<byte> entry = _buffer.AsSpan(i * SensorEntrySize, SensorEntrySize);
+
+            var type = (ArgusSensorType)BinaryPrimitives.ReadUInt32LittleEndian(entry.Slice(0, 4));
+            var label = ReadWideString(entry.Slice(4, 128));
+            var unit = ReadWideString(entry.Slice(132, 64));
+            var value = BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(entry.Slice(196, 8)));
+            var dataIndex = BinaryPrimitives.ReadUInt32LittleEndian(entry.Slice(204, 4));
+            var sensorIndex = BinaryPrimitives.ReadUInt32LittleEndian(entry.Slice(208, 4));
+
+            list.Add(new ArgusSensor(type, label, unit, value, dataIndex, sensorIndex));
+        }
+
+        AppendComputedSensors(list);
+
+        sensors = list;
+        return true;
+    }
+
+    /// <summary>
+    /// Copies the sensor entries into <see cref="_buffer"/> while holding Argus's mutex. The lock
+    /// covers only the copy, so Argus's writer is not blocked while we decode strings.
+    /// </summary>
+    private unsafe bool TryCopySensorData(out int count)
+    {
+        count = 0;
 
         if (_accessor == null || _mutex == null)
             return false;
@@ -192,25 +227,10 @@ public sealed class ArgusMonitorService : IDisposable
                 var fitCount = (uint)((capacity - OffsetSensorData) / SensorEntrySize);
                 totalSensorCount = Math.Min(totalSensorCount, Math.Min(MaxSensorCount, fitCount));
 
-                var list = new List<ArgusSensor>((int)totalSensorCount);
-                for (var i = 0u; i < totalSensorCount; i++)
-                {
-                    var entry = view.Slice(OffsetSensorData + (int)i * SensorEntrySize, SensorEntrySize);
-
-                    var type = (ArgusSensorType)BinaryPrimitives.ReadUInt32LittleEndian(entry.Slice(0, 4));
-                    var label = ReadWideString(entry.Slice(4, 128));
-                    var unit = ReadWideString(entry.Slice(132, 64));
-                    var value = BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(entry.Slice(196, 8)));
-                    var dataIndex = BinaryPrimitives.ReadUInt32LittleEndian(entry.Slice(204, 4));
-                    var sensorIndex = BinaryPrimitives.ReadUInt32LittleEndian(entry.Slice(208, 4));
-
-                    list.Add(new ArgusSensor(type, label, unit, value, dataIndex, sensorIndex));
-                }
-
-                AppendComputedSensors(list);
+                count = (int)totalSensorCount;
+                view.Slice(OffsetSensorData, count * SensorEntrySize).CopyTo(_buffer);
 
                 _lastCycleCounter = cycleCounter;
-                sensors = list;
                 return true;
             }
             finally
