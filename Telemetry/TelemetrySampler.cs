@@ -69,6 +69,7 @@ internal sealed class TelemetrySampler(ArgusMonitorService argus, Func<double> t
                 SensorMetrics.Describe(sensor, ordinal, tj)));
         }
 
+        PageMetrics.Observe(sensors);
         foreach (PageMetrics.Definition definition in PageMetrics.All)
         {
             if (definition.Read(sensors) is { } value)
