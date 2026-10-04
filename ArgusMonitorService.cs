@@ -73,7 +73,13 @@ public sealed class ArgusMonitorService : IDisposable
 
         _cts = new CancellationTokenSource();
         var token = _cts.Token;
-        _pollTask = Task.Run(() => PollLoop(token), token);
+        // The poll task owns the handles and closes them itself once it has ended, so Stop() never
+        // disposes them under a snapshot that is still running.
+        _pollTask = Task.Run(async () =>
+        {
+            try { await PollLoop(token).ConfigureAwait(false); }
+            finally { Close(); }
+        }, token);
     }
 
     public void Stop()
@@ -83,7 +89,6 @@ public sealed class ArgusMonitorService : IDisposable
         _pollTask = null;
         _cts?.Dispose();
         _cts = null;
-        Close();
     }
 
     public void Dispose() => Stop();
