@@ -7,7 +7,7 @@ namespace LoupixDeck.Plugin.Argus.Telemetry;
 /// alert states are evaluated with hysteresis. Runs on its own timer, off the host's render lock;
 /// render calls only read the latest published frame.
 /// </summary>
-internal sealed class TelemetrySampler(ArgusMonitorService argus, Func<double> tjMax) : IDisposable
+internal sealed class TelemetrySampler(ArgusMonitorService argus, Func<TelemetrySettings> readSettings) : IDisposable
 {
     /// <summary>Samples kept per metric — the width of the design's 72-px chart.</summary>
     public const int HistoryLength = 72;
@@ -57,7 +57,8 @@ internal sealed class TelemetrySampler(ArgusMonitorService argus, Func<double> t
         }
 
         IReadOnlyList<ArgusSensor> sensors = argus.Sensors;
-        double tj = tjMax();
+        TelemetrySettings settings = readSettings();
+        double tj = settings.TjMax;
 
         List<(string Key, double Value, MetricInfo Info)> inputs = [];
         Dictionary<ArgusSensorType, int> ordinals = [];
@@ -94,12 +95,12 @@ internal sealed class TelemetrySampler(ArgusMonitorService argus, Func<double> t
                 ThresholdKind.GpuFanStall => metrics.GetValueOrDefault(PageMetrics.GpuTemp)?.State ?? MetricState.Ok,
                 _ => MetricState.Ok
             };
-            track.State = Thresholds.Evaluate(info.Threshold, smoothed, tj, track.State, companion);
+            track.State = Thresholds.Evaluate(info.Threshold, smoothed, settings, track.State, companion);
 
             double[] history = track.ToArray();
             double max = info.GrowToPeak ? Math.Max(info.Max, Peak(history)) : info.Max;
             metrics[key] = new MetricSnapshot(smoothed, track.State, history, info.Min, max,
-                Thresholds.LimitsFor(info.Threshold, tj)?.Warn, info.Format, info.Unit);
+                Thresholds.LimitsFor(info.Threshold, settings)?.Warn, info.Format, info.Unit);
         }
 
         // A metric that vanished (sensor disabled in Argus) keeps a gap in its chart and is dropped
