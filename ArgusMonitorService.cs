@@ -175,18 +175,15 @@ public sealed class ArgusMonitorService : IDisposable
         }
         catch (FileNotFoundException)
         {
-            // No mapping: either Argus is not running, or it runs with its data API turned off.
-            SetStatus(IsArgusRunning()
-                ? "Argus Monitor is running, but its data API is off — turn on 'Enable Argus Monitor Data API' in its settings."
-                : "Not running — is Argus Monitor open?");
+            SetStatus(MappingMissing());
         }
         catch (WaitHandleCannotBeOpenedException)
         {
-            SetStatus("Argus Monitor is starting — its data API is not ready yet.");
+            SetStatus(StartingUp);
         }
         catch (UnauthorizedAccessException ex)
         {
-            SetStatus("Access to Argus Monitor's data was denied — start LoupixDeck with the same rights as Argus Monitor.");
+            SetStatus(AccessDenied);
             SetError("Access denied ({0}).", ex.Message);
         }
         catch (Exception ex)
@@ -198,6 +195,17 @@ public sealed class ArgusMonitorService : IDisposable
         Close();
         return false;
     }
+
+    // Why the data API cannot be opened; English keys of the plugin's strings files.
+    private const string NotRunning = "Not running — is Argus Monitor open?";
+    private const string DataApiOff =
+        "Argus Monitor is running, but its data API is off — turn on 'Enable Argus Monitor Data API' in its settings.";
+    private const string StartingUp = "Argus Monitor is starting — its data API is not ready yet.";
+    private const string AccessDenied =
+        "Access to Argus Monitor's data was denied — start LoupixDeck with the same rights as Argus Monitor.";
+
+    // No mapping: either Argus is not running, or it runs with its data API turned off.
+    private static string MappingMissing() => IsArgusRunning() ? DataApiOff : NotRunning;
 
     private static bool IsArgusRunning()
     {
