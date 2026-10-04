@@ -62,7 +62,6 @@ public sealed class ArgusMonitorService : IDisposable
 
     public IReadOnlyList<ArgusSensor> Sensors => _sensors;
     public bool IsAvailable => _accessor != null;
-    public event Action? SnapshotUpdated;
 
     public void Start()
     {
@@ -115,7 +114,6 @@ public sealed class ArgusMonitorService : IDisposable
                 {
                     _sensors = snapshot!;
                     _lastChangeTicks = Environment.TickCount64;
-                    SnapshotUpdated?.Invoke();
                 }
                 else if (Environment.TickCount64 - _lastChangeTicks > StaleAfter.TotalMilliseconds)
                 {
