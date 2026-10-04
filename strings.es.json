@@ -64,5 +64,7 @@
   "Reading failed — reconnecting.": "Error de lectura — reconectando.",
   "Reading failed ({0}: {1}).": "Error de lectura ({0}: {1}).",
   "Argus Monitor is only available on Windows.": "Argus Monitor solo está disponible en Windows.",
-  "Last error: {0}": "Último error: {0}"
+  "Last error: {0}": "Último error: {0}",
+  "Argus Monitor data API": "API de datos de Argus Monitor",
+  "Run Argus Monitor and turn on 'Enable Argus Monitor Data API' in its settings.": "Inicia Argus Monitor y activa 'Activar Argus Monitor Datos API' en su configuración."
 }

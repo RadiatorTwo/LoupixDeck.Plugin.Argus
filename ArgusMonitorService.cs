@@ -204,6 +204,40 @@ public sealed class ArgusMonitorService : IDisposable
     private const string AccessDenied =
         "Access to Argus Monitor's data was denied — start LoupixDeck with the same rights as Argus Monitor.";
 
+    /// <summary>
+    /// Checks right now, without connecting, whether Argus's data API can be opened: null when it
+    /// can, otherwise the reason (an English key of the strings files). Lets a caller answer before
+    /// the poll loop has made its first connection attempt.
+    /// </summary>
+    public static string? ProbeDataApi()
+    {
+        if (!OperatingSystem.IsWindows())
+            return "Argus Monitor is only available on Windows.";
+
+        try
+        {
+            using MemoryMappedFile mapping = MemoryMappedFile.OpenExisting(MappingName, MemoryMappedFileRights.Read);
+            using Mutex mutex = Mutex.OpenExisting(MutexName);
+            return null;
+        }
+        catch (FileNotFoundException)
+        {
+            return MappingMissing();
+        }
+        catch (WaitHandleCannotBeOpenedException)
+        {
+            return StartingUp;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return AccessDenied;
+        }
+        catch (Exception)
+        {
+            return "Cannot open Argus Monitor's data — retrying.";
+        }
+    }
+
     // No mapping: either Argus is not running, or it runs with its data API turned off.
     private static string MappingMissing() => IsArgusRunning() ? DataApiOff : NotRunning;
 
