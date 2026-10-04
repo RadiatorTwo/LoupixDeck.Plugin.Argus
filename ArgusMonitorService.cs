@@ -29,7 +29,6 @@ public sealed class ArgusMonitorService : IDisposable
 {
     private const string MappingName = "Global\\ARGUSMONITOR_DATA_INTERFACE";
     private const string MutexName = "Global\\ARGUSMONITOR_DATA_INTERFACE_MUTEX";
-    private const long MappingSize = 1024 * 1024;
 
     private const int SensorEntrySize = 212;
     private const int MaxSensorCount = 512;
@@ -56,11 +55,13 @@ public sealed class ArgusMonitorService : IDisposable
     private uint? _lastCycleCounter;
     private long _lastChangeTicks;
 
+    // Sensor entries copied out of the section, so parsing happens after the mutex is released.
+    private readonly byte[] _buffer = new byte[MaxSensorCount * SensorEntrySize];
+
     private volatile IReadOnlyList<ArgusSensor> _sensors = Array.Empty<ArgusSensor>();
 
     public IReadOnlyList<ArgusSensor> Sensors => _sensors;
     public bool IsAvailable => _accessor != null;
-    public event Action? SnapshotUpdated;
 
     public void Start()
     {
@@ -71,7 +72,13 @@ public sealed class ArgusMonitorService : IDisposable
 
         _cts = new CancellationTokenSource();
         var token = _cts.Token;
-        _pollTask = Task.Run(() => PollLoop(token), token);
+        // The poll task owns the handles and closes them itself once it has ended, so Stop() never
+        // disposes them under a snapshot that is still running.
+        _pollTask = Task.Run(async () =>
+        {
+            try { await PollLoop(token).ConfigureAwait(false); }
+            finally { Close(); }
+        }, token);
     }
 
     public void Stop()
@@ -81,7 +88,6 @@ public sealed class ArgusMonitorService : IDisposable
         _pollTask = null;
         _cts?.Dispose();
         _cts = null;
-        Close();
     }
 
     public void Dispose() => Stop();
@@ -108,7 +114,6 @@ public sealed class ArgusMonitorService : IDisposable
                 {
                     _sensors = snapshot!;
                     _lastChangeTicks = Environment.TickCount64;
-                    SnapshotUpdated?.Invoke();
                 }
                 else if (Environment.TickCount64 - _lastChangeTicks > StaleAfter.TotalMilliseconds)
                 {
@@ -133,7 +138,8 @@ public sealed class ArgusMonitorService : IDisposable
         try
         {
             _mmf = MemoryMappedFile.OpenExisting(MappingName, MemoryMappedFileRights.Read);
-            _accessor = _mmf.CreateViewAccessor(0, MappingSize, MemoryMappedFileAccess.Read);
+            // Length 0 maps the entire section, whatever size Argus created it with.
+            _accessor = _mmf.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read);
             // The mutex may not yet exist if Argus is mid-startup; treat that as not-available.
             _mutex = Mutex.OpenExisting(MutexName);
             return true;
@@ -156,9 +162,41 @@ public sealed class ArgusMonitorService : IDisposable
         _sensors = Array.Empty<ArgusSensor>();
     }
 
-    private unsafe bool TrySnapshot(out IReadOnlyList<ArgusSensor>? sensors)
+    private bool TrySnapshot(out IReadOnlyList<ArgusSensor>? sensors)
     {
         sensors = null;
+
+        if (!TryCopySensorData(out var count))
+            return false;
+
+        var list = new List<ArgusSensor>(count);
+        for (var i = 0; i < count; i++)
+        {
+            ReadOnlySpan<byte> entry = _buffer.AsSpan(i * SensorEntrySize, SensorEntrySize);
+
+            var type = (ArgusSensorType)BinaryPrimitives.ReadUInt32LittleEndian(entry.Slice(0, 4));
+            var label = ReadWideString(entry.Slice(4, 128));
+            var unit = ReadWideString(entry.Slice(132, 64));
+            var value = BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(entry.Slice(196, 8)));
+            var dataIndex = BinaryPrimitives.ReadUInt32LittleEndian(entry.Slice(204, 4));
+            var sensorIndex = BinaryPrimitives.ReadUInt32LittleEndian(entry.Slice(208, 4));
+
+            list.Add(new ArgusSensor(type, label, unit, value, dataIndex, sensorIndex));
+        }
+
+        AppendComputedSensors(list);
+
+        sensors = list;
+        return true;
+    }
+
+    /// <summary>
+    /// Copies the sensor entries into <see cref="_buffer"/> while holding Argus's mutex. The lock
+    /// covers only the copy, so Argus's writer is not blocked while we decode strings.
+    /// </summary>
+    private unsafe bool TryCopySensorData(out int count)
+    {
+        count = 0;
 
         if (_accessor == null || _mutex == null)
             return false;
@@ -177,35 +215,25 @@ public sealed class ArgusMonitorService : IDisposable
                 if (basePtr == null)
                     return false;
 
-                var view = new ReadOnlySpan<byte>(basePtr, (int)MappingSize);
+                // Every read below stays inside the mapped section.
+                var capacity = (int)Math.Min(_accessor.Capacity, int.MaxValue);
+                if (capacity < OffsetSensorData)
+                    return false;
+
+                var view = new ReadOnlySpan<byte>(basePtr, capacity);
 
                 var cycleCounter = BinaryPrimitives.ReadUInt32LittleEndian(view.Slice(OffsetCycleCounter, 4));
                 if (cycleCounter == _lastCycleCounter)
                     return false;
 
                 var totalSensorCount = BinaryPrimitives.ReadUInt32LittleEndian(view.Slice(OffsetTotalSensorCount, 4));
-                if (totalSensorCount > MaxSensorCount)
-                    totalSensorCount = MaxSensorCount;
+                var fitCount = (uint)((capacity - OffsetSensorData) / SensorEntrySize);
+                totalSensorCount = Math.Min(totalSensorCount, Math.Min(MaxSensorCount, fitCount));
 
-                var list = new List<ArgusSensor>((int)totalSensorCount);
-                for (var i = 0u; i < totalSensorCount; i++)
-                {
-                    var entry = view.Slice(OffsetSensorData + (int)i * SensorEntrySize, SensorEntrySize);
-
-                    var type = (ArgusSensorType)BinaryPrimitives.ReadUInt32LittleEndian(entry.Slice(0, 4));
-                    var label = ReadWideString(entry.Slice(4, 128));
-                    var unit = ReadWideString(entry.Slice(132, 64));
-                    var value = BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(entry.Slice(196, 8)));
-                    var dataIndex = BinaryPrimitives.ReadUInt32LittleEndian(entry.Slice(204, 4));
-                    var sensorIndex = BinaryPrimitives.ReadUInt32LittleEndian(entry.Slice(208, 4));
-
-                    list.Add(new ArgusSensor(type, label, unit, value, dataIndex, sensorIndex));
-                }
-
-                AppendComputedSensors(list);
+                count = (int)totalSensorCount;
+                view.Slice(OffsetSensorData, count * SensorEntrySize).CopyTo(_buffer);
 
                 _lastCycleCounter = cycleCounter;
-                sensors = list;
                 return true;
             }
             finally
@@ -215,7 +243,9 @@ public sealed class ArgusMonitorService : IDisposable
         }
         catch (AbandonedMutexException)
         {
-            // The previous owner died while holding the mutex; the new state is now ours.
+            // The previous owner died while holding the mutex. The wait still granted it to us, so
+            // the finally block must release it; skip this one snapshot.
+            acquired = true;
             return false;
         }
         finally
