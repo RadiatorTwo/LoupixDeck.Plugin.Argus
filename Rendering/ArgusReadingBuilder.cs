@@ -117,7 +117,7 @@ public static class ArgusReadingBuilder
         if (!Enum.TryParse(typeToken, ignoreCase: true, out ArgusSensorType type) || type == ArgusSensorType.Invalid)
             return [Placeholder("Argus")];
 
-        List<ArgusSensor> group = SensorsOfType(sensors, type);
+        IReadOnlyList<ArgusSensor> group = SensorsOfType(sensors, type);
         if (group.Count == 0)
             return [Placeholder(Header(type))];
 
@@ -162,7 +162,7 @@ public static class ArgusReadingBuilder
         // Argus does not give per-instance sensors (e.g. CPU cores) a distinct SensorIndex, so the
         // raw field cannot be used to tell them apart. The sampler keys its history the same way.
         // The ordinal shifts when sensors come or go, so a saved label wins when one still matches.
-        List<ArgusSensor> group = SensorsOfType(sensors, type);
+        IReadOnlyList<ArgusSensor> group = SensorsOfType(sensors, type);
         int ordinal = ResolveOrdinal(group, (int)index, labelHint);
         sensor = group.ElementAtOrDefault(ordinal);
         key = MetricKeys.ForSensor(type, ordinal);
@@ -174,7 +174,7 @@ public static class ArgusReadingBuilder
     /// otherwise the sensor of that type with the saved label (the nearest one when several share
     /// it), and the saved ordinal again when no label matches.
     /// </summary>
-    private static int ResolveOrdinal(List<ArgusSensor> group, int ordinal, string? labelHint)
+    private static int ResolveOrdinal(IReadOnlyList<ArgusSensor> group, int ordinal, string? labelHint)
     {
         if (string.IsNullOrEmpty(labelHint))
             return ordinal;
@@ -217,18 +217,37 @@ public static class ArgusReadingBuilder
         .Replace("&", "%26");
 
     /// <summary>The sensors of a given type, in the order Argus reports them (the ordinal position in
-    /// this list is the stable per-type index used by both the menu and the lookup).</summary>
-    private static List<ArgusSensor> SensorsOfType(IReadOnlyList<ArgusSensor> sensors, ArgusSensorType type)
+    /// this list is the stable per-type index used by both the menu and the lookup). Indexed once per
+    /// sensor snapshot, so a lookup does not walk every sensor.</summary>
+    private static IReadOnlyList<ArgusSensor> SensorsOfType(IReadOnlyList<ArgusSensor> sensors, ArgusSensorType type)
     {
-        List<ArgusSensor> result = [];
+        TypeIndex? index = _typeIndex;
+        if (index is null || !ReferenceEquals(index.Sensors, sensors))
+            _typeIndex = index = new TypeIndex(sensors, IndexByType(sensors));
+
+        return index.ByType.TryGetValue(type, out List<ArgusSensor>? group) ? group : [];
+    }
+
+    private static Dictionary<ArgusSensorType, List<ArgusSensor>> IndexByType(IReadOnlyList<ArgusSensor> sensors)
+    {
+        Dictionary<ArgusSensorType, List<ArgusSensor>> byType = [];
         foreach (ArgusSensor sensor in sensors)
         {
-            if (sensor.Type == type)
-                result.Add(sensor);
+            if (!byType.TryGetValue(sensor.Type, out List<ArgusSensor>? group))
+                byType[sensor.Type] = group = [];
+            group.Add(sensor);
         }
 
-        return result;
+        return byType;
     }
+
+    private sealed record TypeIndex(
+        IReadOnlyList<ArgusSensor> Sensors,
+        Dictionary<ArgusSensorType, List<ArgusSensor>> ByType);
+
+    // Replaced as a whole when the snapshot changes; render threads may race to build it, which
+    // only costs a duplicate build.
+    private static volatile TypeIndex? _typeIndex;
 
     private static bool TryParseRef(string raw, out ArgusSensorType type, out uint index, out string? labelHint)
     {
@@ -288,7 +307,7 @@ public static class ArgusReadingBuilder
     {
         string baseHeader = Header(sensor);
 
-        List<ArgusSensor> sameType = SensorsOfType(sensors, sensor.Type);
+        IReadOnlyList<ArgusSensor> sameType = SensorsOfType(sensors, sensor.Type);
         if (sameType.Count <= 1)
             return baseHeader;
 

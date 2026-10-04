@@ -37,6 +37,10 @@ public sealed class ArgusPlugin : LoupixPlugin, IMenuContributor, IPluginSetting
 
     private const long DefaultTjMax = 100;
 
+    // Release builds of the host send all console output, plugin log lines included, into
+    // loupixdeck-startup.log. Like the host's LOUPIXDECK_DEBUG_* switches, logging is opt-in.
+    private static readonly bool DebugLogging = Environment.GetEnvironmentVariable("LOUPIXDECK_DEBUG_ARGUS") == "1";
+
     private readonly ArgusMonitorService _service = new();
     private TelemetrySampler? _telemetry;
     private List<IPluginCommand> _commands = [];
@@ -67,7 +71,8 @@ public sealed class ArgusPlugin : LoupixPlugin, IMenuContributor, IPluginSetting
     public override void Initialize(IPluginHost host)
     {
         _host = host;
-        _telemetry = new TelemetrySampler(_service, ReadSettings);
+        _service.Log = DebugLog;
+        _telemetry = new TelemetrySampler(_service, ReadSettings, DebugLog);
         _commands = [new ArgusSensorCommand(_telemetry), new ArgusPagesCommand(_telemetry)];
         _service.Start();
         _telemetry.Start();
@@ -101,6 +106,14 @@ public sealed class ArgusPlugin : LoupixPlugin, IMenuContributor, IPluginSetting
                 InstallHint = "Run Argus Monitor and turn on 'Enable Argus Monitor Data API' in its settings."
             }
         ];
+    }
+
+    /// <summary>Writes to the host log, only with LOUPIXDECK_DEBUG_ARGUS=1. Errors stay visible
+    /// without it through Show Status.</summary>
+    private void DebugLog(string message)
+    {
+        if (DebugLogging)
+            _host?.Logger.Warn(message);
     }
 
     private TelemetrySettings ReadSettings()
