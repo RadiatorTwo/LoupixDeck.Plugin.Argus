@@ -42,6 +42,9 @@ public sealed class ArgusMonitorService : IDisposable
     private static readonly TimeSpan ReconnectDelay = TimeSpan.FromSeconds(2);
     // Poll cadence when connected — only a 4-byte read happens when CycleCounter is unchanged.
     private static readonly TimeSpan PollDelay = TimeSpan.FromMilliseconds(250);
+    // Argus bumps CycleCounter about once a second. Our open handle keeps the mapping alive after
+    // Argus exits, so a counter that stops moving this long means Argus is gone.
+    private static readonly TimeSpan StaleAfter = TimeSpan.FromSeconds(15);
 
     private MemoryMappedFile? _mmf;
     private MemoryMappedViewAccessor? _accessor;
@@ -49,7 +52,9 @@ public sealed class ArgusMonitorService : IDisposable
 
     private CancellationTokenSource? _cts;
     private Task? _pollTask;
-    private uint _lastCycleCounter;
+    // Null until the first snapshot after (re)connecting, so a first counter value of 0 still counts.
+    private uint? _lastCycleCounter;
+    private long _lastChangeTicks;
 
     private volatile IReadOnlyList<ArgusSensor> _sensors = Array.Empty<ArgusSensor>();
 
@@ -93,7 +98,8 @@ public sealed class ArgusMonitorService : IDisposable
                     catch (OperationCanceledException) { return; }
                     continue;
                 }
-                _lastCycleCounter = 0;
+                _lastCycleCounter = null;
+                _lastChangeTicks = Environment.TickCount64;
             }
 
             try
@@ -101,7 +107,14 @@ public sealed class ArgusMonitorService : IDisposable
                 if (TrySnapshot(out var snapshot))
                 {
                     _sensors = snapshot!;
+                    _lastChangeTicks = Environment.TickCount64;
                     SnapshotUpdated?.Invoke();
+                }
+                else if (Environment.TickCount64 - _lastChangeTicks > StaleAfter.TotalMilliseconds)
+                {
+                    Console.WriteLine("ArgusMonitorService: no new data from Argus Monitor, reconnecting.");
+                    Close();
+                    continue;
                 }
             }
             catch (Exception ex)
@@ -140,6 +153,7 @@ public sealed class ArgusMonitorService : IDisposable
         _accessor = null;
         _mmf = null;
         _mutex = null;
+        _sensors = Array.Empty<ArgusSensor>();
     }
 
     private unsafe bool TrySnapshot(out IReadOnlyList<ArgusSensor>? sensors)
