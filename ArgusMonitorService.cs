@@ -78,11 +78,14 @@ public sealed class ArgusMonitorService : IDisposable
 
     private void SetStatus(string format, params object[] args) => _status = new ArgusDiagnostics(format, args);
 
+    /// <summary>Receives a line per error event; the plugin decides whether it reaches a log.</summary>
+    public Action<string>? Log { get; set; }
+
     private void SetError(string format, params object[] args)
     {
         ArgusDiagnostics error = new(format, args);
         _lastError = error;
-        Console.WriteLine($"ArgusMonitorService: {error.Text}");
+        Log?.Invoke($"ArgusMonitorService: {error.Text}");
     }
 
     public void Start()
