@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using LoupixDeck.Plugin.Argus.Rendering;
 using LoupixDeck.PluginSdk;
 
 namespace LoupixDeck.Plugin.Argus;
@@ -8,9 +9,11 @@ namespace LoupixDeck.Plugin.Argus;
 /// (CPU, GPU, Memory, Storage, Mainboard, Network, Other) and then by quantity (Temperature, Clock,
 /// Fan, …), and every entry gets a name that is unique within its submenu.
 ///
-/// <para>Only the presentation is new. Each entry still stores <c>&lt;Type&gt;:&lt;Ordinal&gt;</c>,
-/// the sensor's position within its type in Argus report order, exactly as
-/// <see cref="Rendering.ArgusReadingBuilder"/> resolves it, so saved buttons keep loading.</para>
+/// <para>Each entry stores <c>&lt;Type&gt;:&lt;Ordinal&gt;:&lt;Label&gt;</c>: the sensor's position
+/// within its type in Argus report order plus its label as a hint, built by
+/// <see cref="Rendering.ArgusReadingBuilder.Reference"/>. The reading builder prefers the label when
+/// the ordinal has shifted; buttons saved with the older <c>&lt;Type&gt;:&lt;Ordinal&gt;</c> form
+/// still resolve by ordinal alone.</para>
 /// </summary>
 internal static partial class SensorMenu
 {
@@ -85,7 +88,7 @@ internal static partial class SensorMenu
                 {
                     Name = n.MenuName,
                     CommandName = CommandName,
-                    Parameters = new Dictionary<string, string> { { "Sensor", $"{n.Sensor.Type}:{n.Ordinal}" } }
+                    Parameters = new Dictionary<string, string> { { "Sensor", ArgusReadingBuilder.Reference(n.Sensor, n.Ordinal) } }
                 }).ToList();
 
                 if (sections.Count == 1 || nodes.Count == 1)
