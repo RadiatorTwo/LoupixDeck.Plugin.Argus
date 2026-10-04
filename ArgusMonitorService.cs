@@ -1,4 +1,6 @@
 using System.Buffers.Binary;
+using System.Diagnostics;
+using System.Globalization;
 using System.IO.MemoryMappedFiles;
 using System.Text;
 
@@ -29,6 +31,7 @@ public sealed class ArgusMonitorService : IDisposable
 {
     private const string MappingName = "Global\\ARGUSMONITOR_DATA_INTERFACE";
     private const string MutexName = "Global\\ARGUSMONITOR_DATA_INTERFACE_MUTEX";
+    private const string ProcessName = "ArgusMonitor";
 
     private const int SensorEntrySize = 212;
     private const int MaxSensorCount = 512;
@@ -60,13 +63,35 @@ public sealed class ArgusMonitorService : IDisposable
 
     private volatile IReadOnlyList<ArgusSensor> _sensors = Array.Empty<ArgusSensor>();
 
+    private volatile ArgusDiagnostics _status = new("Not started", []);
+    private volatile ArgusDiagnostics? _lastError;
+
     public IReadOnlyList<ArgusSensor> Sensors => _sensors;
     public bool IsAvailable => _accessor != null;
+
+    /// <summary>What the service is doing right now, as a format string and its arguments so the
+    /// plugin can translate it.</summary>
+    public ArgusDiagnostics Status => _status;
+
+    /// <summary>The most recent problem, kept after the status has moved on; null if none yet.</summary>
+    public ArgusDiagnostics? LastError => _lastError;
+
+    private void SetStatus(string format, params object[] args) => _status = new ArgusDiagnostics(format, args);
+
+    private void SetError(string format, params object[] args)
+    {
+        ArgusDiagnostics error = new(format, args);
+        _lastError = error;
+        Console.WriteLine($"ArgusMonitorService: {error.Text}");
+    }
 
     public void Start()
     {
         if (!OperatingSystem.IsWindows())
+        {
+            SetStatus("Argus Monitor is only available on Windows.");
             return;
+        }
         if (_pollTask != null)
             return;
 
@@ -114,17 +139,20 @@ public sealed class ArgusMonitorService : IDisposable
                 {
                     _sensors = snapshot!;
                     _lastChangeTicks = Environment.TickCount64;
+                    SetStatus("Reading — {0} sensor(s).", snapshot!.Count);
                 }
                 else if (Environment.TickCount64 - _lastChangeTicks > StaleAfter.TotalMilliseconds)
                 {
-                    Console.WriteLine("ArgusMonitorService: no new data from Argus Monitor, reconnecting.");
+                    SetStatus("No new data from Argus Monitor — reconnecting.");
+                    SetError("No new data from Argus Monitor for {0} s.", (int)StaleAfter.TotalSeconds);
                     Close();
                     continue;
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"ArgusMonitorService: snapshot failed, will reconnect ({ex.Message}).");
+                SetStatus("Reading failed — reconnecting.");
+                SetError("Reading failed ({0}: {1}).", ex.GetType().Name, ex.Message);
                 Close();
             }
 
@@ -142,13 +170,41 @@ public sealed class ArgusMonitorService : IDisposable
             _accessor = _mmf.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read);
             // The mutex may not yet exist if Argus is mid-startup; treat that as not-available.
             _mutex = Mutex.OpenExisting(MutexName);
+            SetStatus("Connected — waiting for data.");
             return true;
         }
-        catch
+        catch (FileNotFoundException)
         {
-            Close();
-            return false;
+            // No mapping: either Argus is not running, or it runs with its data API turned off.
+            SetStatus(IsArgusRunning()
+                ? "Argus Monitor is running, but its data API is off — turn on 'Enable Argus Monitor Data API' in its settings."
+                : "Not running — is Argus Monitor open?");
         }
+        catch (WaitHandleCannotBeOpenedException)
+        {
+            SetStatus("Argus Monitor is starting — its data API is not ready yet.");
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            SetStatus("Access to Argus Monitor's data was denied — start LoupixDeck with the same rights as Argus Monitor.");
+            SetError("Access denied ({0}).", ex.Message);
+        }
+        catch (Exception ex)
+        {
+            SetStatus("Cannot open Argus Monitor's data — retrying.");
+            SetError("Opening failed ({0}: {1}).", ex.GetType().Name, ex.Message);
+        }
+
+        Close();
+        return false;
+    }
+
+    private static bool IsArgusRunning()
+    {
+        Process[] processes = Process.GetProcessesByName(ProcessName);
+        foreach (Process process in processes)
+            process.Dispose();
+        return processes.Length > 0;
     }
 
     private void Close()
@@ -317,4 +373,11 @@ public sealed class ArgusMonitorService : IDisposable
         }
         return Encoding.Unicode.GetString(bytes);
     }
+}
+
+/// <summary>A status message of <see cref="ArgusMonitorService"/>: an English format string and its
+/// arguments, translated by the plugin when shown.</summary>
+public sealed record ArgusDiagnostics(string Format, object[] Args)
+{
+    public string Text => string.Format(CultureInfo.InvariantCulture, Format, Args);
 }
