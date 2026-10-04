@@ -17,7 +17,8 @@ Sensors are sampled once a second; clock and load readings are smoothed.
 
 - `Argus.Sensor` — one sensor per command, offered as a live tree in the touch-button
   command menu. Chain up to four on one button for a multi-row tile.
-- `Argus.Pages` — component pages (CPU, GPU, RAM, NET, DISK and a CPU summary). The
+- `Argus.Pages` — component pages (CPU, GPU, RAM, NET, DISK and a CPU summary, plus
+  PWR, VRAM and BAT, which the default cycle leaves out). The
   `Pages` parameter lists them separated by `|` (`cpu|gpu|sum`); several `Argus.Pages`
   commands chained on one button form one cycle in order. Pressing the button shows its
   next page; a single page makes a fixed tile without the n/N index. Pages without data
