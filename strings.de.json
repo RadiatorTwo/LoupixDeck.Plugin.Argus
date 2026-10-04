@@ -66,5 +66,8 @@
   "Argus Monitor is only available on Windows.": "Argus Monitor gibt es nur unter Windows.",
   "Last error: {0}": "Letzter Fehler: {0}",
   "Argus Monitor data API": "Argus Monitor Daten-API",
-  "Run Argus Monitor and turn on 'Enable Argus Monitor Data API' in its settings.": "Argus Monitor starten und in den Einstellungen 'Argus Monitor Daten API aktivieren' einschalten."
+  "Run Argus Monitor and turn on 'Enable Argus Monitor Data API' in its settings.": "Argus Monitor starten und in den Einstellungen 'Argus Monitor Daten API aktivieren' einschalten.",
+  "Power page": "Leistungs-Seite",
+  "VRAM page": "VRAM-Seite",
+  "Battery page": "Akku-Seite"
 }

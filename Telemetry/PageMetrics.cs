@@ -26,6 +26,12 @@ internal static class PageMetrics
     public const string DiskTemp = "disk.temp";
     public const string DiskRead = "disk.read";
     public const string DiskWrite = "disk.write";
+    public const string GpuPower = "gpu.power";
+    public const string PowerTotal = "pwr.total";
+    public const string VramLoad = "vram.load";
+    public const string VramUsed = "vram.used";
+    public const string VramFree = "vram.free";
+    public const string BatteryLevel = "bat.level";
 
     /// <summary>One derived metric: how to read it from a snapshot and how to describe it.</summary>
     public sealed record Definition(
@@ -97,7 +103,37 @@ internal static class PageMetrics
             _ => new MetricInfo(MetricFormat.BytesPerSecond, 0, 0)),
         new(DiskWrite,
             s => Summed(OfType(s, ArgusSensorType.DiskTransferRate), "(write)", "(read)", 1),
-            _ => new MetricInfo(MetricFormat.BytesPerSecond, 0, 0))
+            _ => new MetricInfo(MetricFormat.BytesPerSecond, 0, 0)),
+
+        new(GpuPower,
+            s => At(s, ArgusSensorType.GpuPower, 0),
+            _ => new MetricInfo(MetricFormat.Watt, 0, 300, GrowToPeak: true)),
+        // CPU package (CpuPower #0) plus GPU board power; whichever Argus reports when one is missing.
+        new(PowerTotal,
+            s => At(s, ArgusSensorType.CpuPower, 0) is { } cpu
+                ? cpu + (At(s, ArgusSensorType.GpuPower, 0) ?? 0)
+                : At(s, ArgusSensorType.GpuPower, 0),
+            _ => new MetricInfo(MetricFormat.Watt, 0, 400, GrowToPeak: true)),
+
+        // Argus reports VRAM used in % and in MB, not the total; the total follows from the two.
+        new(VramLoad,
+            s => At(s, ArgusSensorType.GpuMemoryUsedPercent, 0),
+            _ => new MetricInfo(MetricFormat.Percent, 0, 100)),
+        new(VramUsed,
+            s => At(s, ArgusSensorType.GpuMemoryUsedMb, 0),
+            _ => new MetricInfo(MetricFormat.Megabytes, 0, 0)),
+        new(VramFree,
+            s => At(s, ArgusSensorType.GpuMemoryUsedMb, 0) is { } used
+                 && At(s, ArgusSensorType.GpuMemoryUsedPercent, 0) is > 0 and var percent
+                ? Math.Max(0, (used * 100 / percent) - used)
+                : null,
+            _ => new MetricInfo(MetricFormat.Megabytes, 0, 0)),
+
+        // The charge level: the battery reading in %, else the first one. Absent on desktops, so the
+        // battery page is skipped there.
+        new(BatteryLevel,
+            s => FirstWithUnit(s, ArgusSensorType.Battery, percent: true) ?? At(s, ArgusSensorType.Battery, 0),
+            _ => new MetricInfo(MetricFormat.Percent, 0, 100))
     ];
 
     // ── NET: the busiest adapter ─────────────────────────────────────────────────

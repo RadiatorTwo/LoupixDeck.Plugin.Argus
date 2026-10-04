@@ -17,8 +17,9 @@ Sensors are sampled once a second; clock and load readings are smoothed.
 
 - `Argus.Sensor` — one sensor per command, offered as a live tree in the touch-button
   command menu. Chain up to four on one button for a multi-row tile.
-- `Argus.Pages` — component pages (CPU, GPU, RAM, NET, DISK and a CPU summary). The
-  `Pages` parameter lists them separated by `|` (`cpu|gpu|sum`); several `Argus.Pages`
+- `Argus.Pages` — component pages (CPU, GPU, RAM, NET, DISK, PWR, VRAM, BAT and a CPU
+  summary). The `Pages` parameter lists them separated by `|` (`cpu|gpu|sum`), or `all` for
+  every page, which the menu's "All pages" entry stores; several `Argus.Pages`
   commands chained on one button form one cycle in order. Pressing the button shows its
   next page; a single page makes a fixed tile without the n/N index. Pages without data
   are skipped. Per-button paging needs a LoupixDeck host with SDK 1.26.0; on older hosts

@@ -140,13 +140,16 @@ public sealed class ArgusPlugin : LoupixPlugin, IMenuContributor, IPluginSetting
     /// <summary>The paging tile (every page, press for the next) and one fixed tile per page.</summary>
     private static List<MenuNode> PageNodes() =>
     [
-        PagesNode("All pages (press to cycle)", ComponentPages.DefaultSelection),
+        PagesNode("All pages (press to cycle)", ComponentPages.AllSelection),
         PagesNode("CPU page", ComponentPages.Cpu.Id),
         PagesNode("GPU page", ComponentPages.Gpu.Id),
         PagesNode("RAM page", ComponentPages.Ram.Id),
         PagesNode("Network page", ComponentPages.Net.Id),
         PagesNode("Disk page", ComponentPages.Disk.Id),
-        PagesNode("CPU summary", ComponentPages.Summary.Id)
+        PagesNode("CPU summary", ComponentPages.Summary.Id),
+        PagesNode("Power page", ComponentPages.Power.Id),
+        PagesNode("VRAM page", ComponentPages.Vram.Id),
+        PagesNode("Battery page", ComponentPages.Battery.Id)
     ];
 
     private static MenuNode PagesNode(string name, string pages) => new()
