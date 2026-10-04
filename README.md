@@ -20,7 +20,9 @@ Sensors are sampled once a second; clock and load readings are smoothed.
   commands chained on one button form one cycle in order. Pressing the button shows its
   next page; a single page makes a fixed tile without the n/N index. Pages without data
   are skipped. Per-button paging needs a LoupixDeck host with SDK 1.26.0; on older hosts
-  buttons with the same page list page together.
+  buttons with the same page list page together. NET follows the adapter with the most
+  traffic over the last few seconds (Argus reports rates only, no totals), DISK sums the
+  transfer rates of all drives.
 
 Settings: transparent background, and the CPU's TjMax (CPU temperature turns amber at
 TjMax − 15 °C and red at TjMax − 5 °C).
