@@ -12,7 +12,7 @@ namespace LoupixDeck.Plugin.Argus;
 /// display commands through a live menu: <c>Argus.Sensor</c> (one sensor per command; chain several
 /// for a multi-row tile) and <c>Argus.Pages</c> (component pages, a key press shows the next one).
 /// </summary>
-public sealed class ArgusPlugin : LoupixPlugin, IMenuContributor, IPluginSettingsPage
+public sealed class ArgusPlugin : LoupixPlugin, IMenuContributor, IPluginSettingsPage, IPluginRequirements
 {
     /// <summary>Settings key: when true, buttons are drawn without an opaque background so the page
     /// wallpaper shows through. Read by the display command at render time.</summary>
@@ -34,7 +34,7 @@ public sealed class ArgusPlugin : LoupixPlugin, IMenuContributor, IPluginSetting
         Id = "argus",
         Name = "Argus Monitor",
         Version = new Version(1, 1, 0),
-        SdkVersion = new Version(1, 26, 0),
+        SdkVersion = new Version(1, 28, 0),
         Author = "RadiatorTwo",
         Description = "Display Argus Monitor sensor readings on touch buttons; chain several to compose a multi-sensor tile.",
         Icon = LoadIcon()
@@ -64,6 +64,30 @@ public sealed class ArgusPlugin : LoupixPlugin, IMenuContributor, IPluginSetting
     {
         _telemetry?.Stop();
         _service.Stop();
+    }
+
+    // ───────── IPluginRequirements ─────────
+
+    /// <summary>
+    /// One requirement: Argus Monitor running with its data API on. The host asks right after
+    /// loading, possibly before the poll loop has connected, so an unconnected service probes the
+    /// data API directly instead of reporting a false "not met". Texts are English keys the host
+    /// translates through the plugin's strings files.
+    /// </summary>
+    public IReadOnlyList<PluginRequirement> GetRequirements()
+    {
+        string? problem = _service.IsAvailable ? null : ArgusMonitorService.ProbeDataApi();
+        return
+        [
+            new PluginRequirement
+            {
+                Id = "argus-data-api",
+                Name = "Argus Monitor data API",
+                IsMet = problem is null,
+                Message = problem,
+                InstallHint = "Run Argus Monitor and turn on 'Enable Argus Monitor Data API' in its settings."
+            }
+        ];
     }
 
     private double ReadTjMax()

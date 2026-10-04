@@ -3,8 +3,10 @@
 Argus Monitor integration plugin for [LoupixDeck](https://github.com/RadiatorTwo/LoupixDeck),
 built against [LoupixDeck.PluginSdk](https://github.com/RadiatorTwo/LoupixDeck.PluginSdk).
 
-Windows only. Argus Monitor must be running with its shared-memory data API
-available.
+Windows only. Argus Monitor must be running with its data API turned on
+("Enable Argus Monitor Data API" in Argus's settings). When it is not, the plugin
+reports this as an unmet requirement: the LoupixDeck Plugins page marks it
+"Needs attention" and "Show Status" in the plugin settings says why.
 
 ## Commands
 
