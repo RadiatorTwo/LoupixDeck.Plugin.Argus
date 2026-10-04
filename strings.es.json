@@ -50,5 +50,19 @@
   "Maximum junction temperature of your CPU, from the vendor's spec sheet (typically 95 for AMD Ryzen, 100–105 for Intel). CPU temperature turns amber at TjMax − 15 and red at TjMax − 5.": "Temperatura máxima de unión de tu CPU según la hoja de datos del fabricante (normalmente 95 en AMD Ryzen, 100–105 en Intel). La temperatura de la CPU se vuelve ámbar en TjMax − 15 y roja en TjMax − 5.",
   "Show Status": "Mostrar estado",
   "Reading — {0} sensor(s).": "Leyendo — {0} sensor(es).",
-  "Not running — is Argus Monitor open?": "No está en ejecución — ¿está abierto Argus Monitor?"
+  "Not running — is Argus Monitor open?": "No está en ejecución — ¿está abierto Argus Monitor?",
+  "Not started": "No iniciado",
+  "Connected — waiting for data.": "Conectado — esperando datos.",
+  "Argus Monitor is running, but its data API is off — turn on 'Enable Argus Monitor Data API' in its settings.": "Argus Monitor está en ejecución, pero su API de datos está desactivada — activa 'Activar Argus Monitor Datos API' en su configuración.",
+  "Argus Monitor is starting — its data API is not ready yet.": "Argus Monitor se está iniciando — su API de datos aún no está lista.",
+  "Access to Argus Monitor's data was denied — start LoupixDeck with the same rights as Argus Monitor.": "Se denegó el acceso a los datos de Argus Monitor — inicia LoupixDeck con los mismos permisos que Argus Monitor.",
+  "Access denied ({0}).": "Acceso denegado ({0}).",
+  "Cannot open Argus Monitor's data — retrying.": "No se pueden abrir los datos de Argus Monitor — reintentando.",
+  "Opening failed ({0}: {1}).": "Error al abrir ({0}: {1}).",
+  "No new data from Argus Monitor — reconnecting.": "No hay datos nuevos de Argus Monitor — reconectando.",
+  "No new data from Argus Monitor for {0} s.": "Sin datos nuevos de Argus Monitor desde hace {0} s.",
+  "Reading failed — reconnecting.": "Error de lectura — reconectando.",
+  "Reading failed ({0}: {1}).": "Error de lectura ({0}: {1}).",
+  "Argus Monitor is only available on Windows.": "Argus Monitor solo está disponible en Windows.",
+  "Last error: {0}": "Último error: {0}"
 }

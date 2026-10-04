@@ -162,9 +162,13 @@ public sealed class ArgusPlugin : LoupixPlugin, IMenuContributor, IPluginSetting
         new PluginSettingAction
         {
             Label = "Show Status",
-            Invoke = () => Task.FromResult(_service.IsAvailable
-                ? string.Format(Tr("Reading — {0} sensor(s)."), _service.Sensors.Count)
-                : Tr("Not running — is Argus Monitor open?"))
+            Invoke = () =>
+            {
+                string text = Tr(_service.Status);
+                if (_service.LastError is { } error)
+                    text += "\n" + string.Format(Tr("Last error: {0}"), Tr(error));
+                return Task.FromResult(text);
+            }
         }
     ];
 
@@ -183,6 +187,8 @@ public sealed class ArgusPlugin : LoupixPlugin, IMenuContributor, IPluginSetting
             return english;
         }
     }
+
+    private string Tr(ArgusDiagnostics diagnostics) => string.Format(Tr(diagnostics.Format), diagnostics.Args);
 
     // Kept out of line: the JIT resolves IPluginHost.Tr when it compiles this method, which throws
     // on a host without it — inside Tr's try block rather than in its caller.

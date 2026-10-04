@@ -50,5 +50,19 @@
   "Maximum junction temperature of your CPU, from the vendor's spec sheet (typically 95 for AMD Ryzen, 100–105 for Intel). CPU temperature turns amber at TjMax − 15 and red at TjMax − 5.": "Maximale Sperrschichttemperatur deiner CPU laut Datenblatt des Herstellers (typisch 95 bei AMD Ryzen, 100–105 bei Intel). Die CPU-Temperatur wird bei TjMax − 15 gelb und bei TjMax − 5 rot.",
   "Show Status": "Status anzeigen",
   "Reading — {0} sensor(s).": "Liest — {0} Sensor(en).",
-  "Not running — is Argus Monitor open?": "Läuft nicht — ist Argus Monitor geöffnet?"
+  "Not running — is Argus Monitor open?": "Läuft nicht — ist Argus Monitor geöffnet?",
+  "Not started": "Nicht gestartet",
+  "Connected — waiting for data.": "Verbunden — warte auf Daten.",
+  "Argus Monitor is running, but its data API is off — turn on 'Enable Argus Monitor Data API' in its settings.": "Argus Monitor läuft, aber seine Daten-API ist aus — in den Einstellungen 'Argus Monitor Daten API aktivieren' einschalten.",
+  "Argus Monitor is starting — its data API is not ready yet.": "Argus Monitor startet — seine Daten-API ist noch nicht bereit.",
+  "Access to Argus Monitor's data was denied — start LoupixDeck with the same rights as Argus Monitor.": "Zugriff auf die Daten von Argus Monitor verweigert — LoupixDeck mit denselben Rechten wie Argus Monitor starten.",
+  "Access denied ({0}).": "Zugriff verweigert ({0}).",
+  "Cannot open Argus Monitor's data — retrying.": "Daten von Argus Monitor lassen sich nicht öffnen — neuer Versuch.",
+  "Opening failed ({0}: {1}).": "Öffnen fehlgeschlagen ({0}: {1}).",
+  "No new data from Argus Monitor — reconnecting.": "Keine neuen Daten von Argus Monitor — verbinde neu.",
+  "No new data from Argus Monitor for {0} s.": "Seit {0} s keine neuen Daten von Argus Monitor.",
+  "Reading failed — reconnecting.": "Lesen fehlgeschlagen — verbinde neu.",
+  "Reading failed ({0}: {1}).": "Lesen fehlgeschlagen ({0}: {1}).",
+  "Argus Monitor is only available on Windows.": "Argus Monitor gibt es nur unter Windows.",
+  "Last error: {0}": "Letzter Fehler: {0}"
 }
