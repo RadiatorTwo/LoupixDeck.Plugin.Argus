@@ -215,7 +215,9 @@ public sealed class ArgusMonitorService : IDisposable
         }
         catch (AbandonedMutexException)
         {
-            // The previous owner died while holding the mutex; the new state is now ours.
+            // The previous owner died while holding the mutex. The wait still granted it to us, so
+            // the finally block must release it; skip this one snapshot.
+            acquired = true;
             return false;
         }
         finally
