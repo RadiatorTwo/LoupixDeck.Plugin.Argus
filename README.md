@@ -32,6 +32,13 @@ TjMax − 15 °C and red at TjMax − 5 °C), temperatures in °F instead of °C
 the alert limits: GPU 80/88 °C, drives 55/65 °C, RAM load 85/95 % (warning/critical) and a
 stalled fan below 200 RPM by default.
 
+## Troubleshooting
+
+"Show Status" in the plugin settings names the current state and the last error. For a log,
+start LoupixDeck with the environment variable `LOUPIXDECK_DEBUG_ARGUS=1`: error events then
+go to the host log (in release builds `~/.config/LoupixDeck/loupixdeck-startup.log`). Without
+it the plugin writes nothing there.
+
 ## Credits
 
 The plugin icon is based on the lizard from [Fluent Emoji](https://github.com/microsoft/fluentui-emoji)
