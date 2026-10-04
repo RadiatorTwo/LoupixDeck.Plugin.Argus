@@ -27,8 +27,10 @@ Sensors are sampled once a second; clock and load readings are smoothed.
   traffic over the last few seconds (Argus reports rates only, no totals), DISK sums the
   transfer rates of all drives.
 
-Settings: transparent background, and the CPU's TjMax (CPU temperature turns amber at
-TjMax − 15 °C and red at TjMax − 5 °C).
+Settings: transparent background, the CPU's TjMax (CPU temperature turns amber at
+TjMax − 15 °C and red at TjMax − 5 °C), temperatures in °F instead of °C (display only), and
+the alert limits: GPU 80/88 °C, drives 55/65 °C, RAM load 85/95 % (warning/critical) and a
+stalled fan below 200 RPM by default.
 
 ## Credits
 
